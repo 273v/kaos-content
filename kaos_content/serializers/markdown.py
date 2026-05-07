@@ -140,13 +140,12 @@ class _SerializerContext:
     def _safe_url(self, url: str) -> str:
         """Return ``url`` if safe; otherwise ``"#"``.
 
-        Defers to :func:`kaos_content._security.is_safe_url`. The
-        returned string is suitable for the URL slot of a markdown
-        link or image: ``[text](URL)`` / ``![alt](URL)``. When
-        ``allow_raw_html=True`` is set on the serializer, the URL is
-        returned unchanged.
+        Defers to :func:`kaos_core.security.is_safe_url`. The returned
+        string is suitable for the URL slot of a markdown link or image:
+        ``[text](URL)`` / ``![alt](URL)``. When ``allow_raw_html=True``
+        is set on the serializer, the URL is returned unchanged.
         """
-        from kaos_content._security import is_safe_url
+        from kaos_core.security import is_safe_url
 
         if self._allow_raw_html or is_safe_url(url):
             return url
