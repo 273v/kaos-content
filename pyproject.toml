@@ -1,0 +1,223 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kaos-content"
+dynamic = ["version"]
+description = "Abstract document AST for KAOS — Block/Inline content model, provenance, annotations, serialization"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [
+  { name = "273 Ventures LLC", email = "it@273ventures.com" },
+]
+keywords = [
+  "agentic",
+  "ast",
+  "document-model",
+  "kaos",
+  "legal-tech",
+  "mcp",
+  "model-context-protocol",
+  "provenance",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: Text Processing :: Markup",
+  "Typing :: Typed",
+]
+dependencies = [
+  # PEP 440: a bare ">=0.1" excludes pre-releases like 0.1.0a1.
+  # Spelling the alpha explicitly opts the resolver into accepting it
+  # without forcing every install to use --pre.
+  "kaos-core>=0.1.0a1,<0.2",
+  "pydantic>=2.11.0",
+  "uuid6>=2024.7.10; python_version < '3.14'",
+]
+
+[project.optional-dependencies]
+# Per docs/oss/ F009 lesson #4: `uv lock` is strict and refuses to
+# resolve any declared extra whose sibling isn't on PyPI yet. D016
+# ("declared but unresolvable until sibling ships") works for
+# `pip install <pkg>[extra]` but `uv lock` rejects the whole project.
+#
+# The [mcp] and [transformers] extras (pointing at kaos-mcp and
+# kaos-nlp-transformers — both Wave 3, both still 404 on PyPI) are
+# therefore STRIPPED at v0.1.0a1 and re-added at v0.1.0a2 once the
+# siblings ship. Source-side lazy imports of those modules survive
+# via try/except + ty: ignore[unresolved-import].
+#
+# [nlp] DOES resolve today — kaos-nlp-core 0.1.0a1 is on PyPI (Wave 1
+# Layer 0; shipped 2026-05-06). Third-party extras (markdown / html /
+# images / layout / polars / duckdb / dedup-perceptual) all resolve
+# from PyPI directly.
+markdown = ["markdown-it-py[plugins]>=3.0.0"]
+html = ["lxml>=6.1.0"]                          # >=6.1 closes CVE-2026-41066
+# Pillow >=12.2.0 closes CVE-2026-40192. numpy >=2.1.0 is the first
+# release with cp313 wheels (numpy 2.0.0 / 2.0.1 require source-build
+# on Python 3.13, which kills CI Install times by ~20 min). polars
+# >=1.5.0 and duckdb >=1.1.0 are likewise the first cp313-wheeled
+# releases. Bumping floors fixes the min-deps CI lane and matches
+# what users actually need on supported Python minors.
+images = ["Pillow>=12.2.0", "numpy>=2.1.0"]
+layout = ["numpy>=2.1.0"]
+nlp = ["kaos-nlp-core>=0.1.0a1,<0.2"]
+polars = ["polars>=1.5.0"]
+duckdb = ["duckdb>=1.1.1"]
+# Perceptual page-image dedup (PerceptualHashLevel). Pure-Python
+# imagehash (BSD-2) on rendered KaosImage pages — no model, no ONNX.
+# Semantic clustering lives in kaos-nlp-transformers, which registers
+# itself against this package's DedupLevel Protocol; install
+# kaos-nlp-transformers separately to enable it. Lexical levels
+# (binary/text hash, MinHash via [nlp]) work without either extra.
+dedup-perceptual = ["imagehash>=4.3.0"]
+
+[dependency-groups]
+# At v0.1.0a1 the dev group does NOT pin kaos-mcp, kaos-nlp-transformers,
+# or kaos-office because they aren't on PyPI yet (Wave 3 / deferred).
+# kaos-nlp-core IS on PyPI (Layer-0 sibling shipped 2026-05-06) and is
+# kept here so the [nlp]-extra code paths (search.py, indexing.py)
+# resolve in lint + test jobs.
+#
+# The integration tests that need the unpublished siblings
+# (tests/integration/test_office_duckdb_e2e.py, the imagehash dedup
+# tests that exercise kaos-nlp-transformers' try-import path) skip
+# cleanly via existing pytest skipif guards or `pytest.importorskip`
+# on the missing module.
+#
+# Re-add at 0.1.0a2 alongside the [mcp] / [transformers] extras.
+# Per F009 lesson #4 — uv lock is strict; declared-but-unpublished
+# extras refuse to resolve, so we strip from dev too.
+dev = [
+  "kaos-nlp-core>=0.1.0a1,<0.2",
+  "Pillow>=12.2.0",
+  "numpy>=2.1.0",
+  "polars>=1.5.0",
+  "duckdb>=1.1.1",
+  "imagehash>=4.3.0",
+  # The dev group mirrors every published [extra] so the lint, test,
+  # and min-deps lanes cover every code path the package can take. lxml
+  # backs [html] (required by parsers.html and test_security_url_filter
+  # et al.); markdown-it-py backs [markdown] (parsers.markdown,
+  # test_markdown_parser). Without these, min-deps fails test
+  # collection at modules that do top-level `from kaos_content.parsers.html
+  # import ...` instead of `pytest.importorskip("lxml")`.
+  "lxml>=6.1.0",
+  "markdown-it-py[plugins]>=3.0.0",
+  "pytest>=9.0.3",
+  "pytest-asyncio>=1.3.0",
+  "pytest-cov>=7.1.0",
+  # Property-based + fuzz testing for the security contracts:
+  # serializer XSS, URL filter canonicalization, DuckDB deny-list,
+  # JSON deserialization, markdown round-trip. Lives under tests/fuzz.
+  "hypothesis>=6.130.0",
+  "ruff>=0.15.12",
+  "ty>=0.0.34,<0.1",
+]
+
+[project.urls]
+Homepage = "https://kelvin.legal"
+Documentation = "https://docs.kelvin.legal"
+Repository = "https://github.com/273v/kaos-content"
+Issues = "https://github.com/273v/kaos-content/issues"
+Changelog = "https://github.com/273v/kaos-content/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "kaos_content/_version.py"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/kaos_content",
+  "/README.md",
+  "/CHANGELOG.md",
+  "/SECURITY.md",
+  "/LICENSE",
+  "/NOTICE",
+  "/tests",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["kaos_content"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = [
+  "-ra",
+  "--strict-markers",
+  "--strict-config",
+  "--cov=kaos_content",
+  "--cov-branch",
+  "--cov-report=term-missing",
+]
+markers = [
+  "integration: end-to-end behavior checks",
+  "unit: focused unit checks",
+  "fuzz: Hypothesis property-based and pathological-input tests",
+]
+
+[tool.check-manifest]
+# We deliberately do NOT ship internal-only files in the PyPI sdist:
+# CLAUDE.md is developer notes, docs/{PRD,PLAN,PARSER_DECISION}.md are
+# design history (linked from the public README + GitHub instead),
+# and uv.lock is an application lockfile — libraries pin via
+# pyproject.toml dependency ranges, not via lockfiles. The hatch
+# sdist include-list in [tool.hatch.build.targets.sdist] is the
+# source of truth.
+ignore = [
+  "CLAUDE.md",
+  "docs/*.md",
+  "uv.lock",
+]
+
+[tool.coverage.run]
+source = ["kaos_content"]
+branch = true
+omit = [
+  "*/tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "@abstractmethod",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "C4", "PTH"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["kaos_content"]
+
+[tool.ty.src]
+include = ["kaos_content", "tests"]
+# These tests exercise integration paths that require unpublished
+# Wave 3 siblings (kaos-office, kaos-nlp-transformers). They skip
+# cleanly at runtime via existing import-time guards / pytest
+# importorskip but ty walks imports statically and can't see the
+# runtime fallback. Re-include at 0.1.0a2 once the siblings ship.
+exclude = [
+  "tests/integration/test_office_duckdb_e2e.py",
+  "tests/unit/test_dedup.py",
+]
+
+[tool.uv]
+package = true
