@@ -7,55 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0a1] — 2026-05-07
-
-First public alpha release.
+## [0.1.0a2] — 2026-05-07
 
 ### Security
 
-The first published wheel ships with a hardened security surface
-(seven contract-level fixes, ~35 regression tests under `tests/security/`):
+- **KCONT-01 — XXE / entity-expansion guard on the HTML parser.** `parse_html`
+  previously called :func:`lxml.html.document_fromstring` with default parser
+  settings. lxml's HTML parser tolerates DOCTYPE entity declarations, so a
+  payload with billion-laughs-shaped entity nesting could either expand
+  exponentially in memory or attempt to fetch a `SYSTEM` reference over the
+  network. Fix: a module-level `lxml.html.HTMLParser(no_network=True,
+  huge_tree=False, recover=True, remove_blank_text=False)` is now passed
+  explicitly to every `document_fromstring` call. `no_network=True` blocks
+  external entity fetches; `huge_tree=False` keeps the libxml2 input-size
+  and entity-expansion caps in place. New regression tests
+  (`tests/security/test_security_sec7.py`) confirm a billion-laughs payload
+  parses in well under one second and that SYSTEM-entity references are
+  not fetched.
 
-- **Sec-1 — `urlparse` `ValueError` leak + parser context isolation.**
-  HTML / markdown URL filters now route every parse through
-  `kaos_content._security.is_safe_url`, which catches `ValueError` from
-  malformed URIs internally and returns a uniform unsafe verdict instead
-  of leaking exceptions. The HTML parser's per-document state is now
-  carried in a `contextvars.ContextVar` so concurrent `parse_html` calls
-  on different documents don't cross-contaminate ID counters or
-  `pre_content_mode`. Closes findings #3 and #6.
-- **Sec-2 — markdown XSS via unescaped URL / alt text.**
-  `serialize_markdown` now escapes link / image URLs and image alt text
-  through the same `is_safe_url` filter as the HTML serializer; raw
-  `javascript:` / `data:` / `vbscript:` / `file:` URIs in the AST
-  no longer round-trip into renderable HTML. Closes finding #1.
-- **Sec-3 — DuckDB sandbox structural reorganisation.**
-  `bridges/duckdb.py` now exposes `create_safe_connection()` which sets
-  `lock_configuration` and disables filesystem extension loading at
-  open time (structural enforcement) instead of relying on a SQL
-  deny-list (regex-defeatable). The legacy deny-list is kept as
-  telemetry only. Closes finding #2.
-- **Sec-4 — HTML link-stripping preserves visible text.**
-  When `parse_html` strips an unsafe-URL `<a>` element, the inner text
-  / image is now preserved as a plain inline span instead of being
-  dropped. Prevents accidental information loss and the "phantom button"
-  UX where rendered output omitted visible labels. Closes finding #4.
-- **Sec-5 — bounded artifact reads with `max_bytes` cap.**
-  `load_document` and `load_tabular` accept an optional `max_bytes`
-  parameter (default: 256 MB) and short-circuit if the manifest body
-  exceeds it. Prevents an attacker-controlled artifact from triggering
-  unbounded memory consumption during deserialisation. Closes finding #5.
-- **Sec-6 — `KaosImage.resize` copy-before-thumbnail.**
-  `resize()` now copies the source PIL image before invoking
-  `thumbnail()`, which is in-place. The previous code mutated the
-  caller's image when the result happened to fit — a silent
-  cross-call side-effect. Closes finding #7.
-- **Sec-7 — kaos-source defensive test + security guide.**
-  Added cross-package defensive tests covering the artifact-cap
-  contract from kaos-source's perspective; `docs/security.md` documents
-  the threat model + entry-point contracts ([HTML / markdown URL safety,
-  DuckDB sandbox, artifact size, parser context isolation, image
-  decompression-bomb caps]).
+### Changed
+
+- **`kaos_content._security` is now a re-export shim.** The canonical
+  implementation of `is_safe_url` and `UNSAFE_SCHEMES` has moved to
+  :mod:`kaos_core.security.url` (introduced in `kaos-core` 0.1.0a4),
+  where it is joined by `validate_outbound_url` (full SSRF guard),
+  response size-cap helpers, and the `KaosSecuritySettings` knob set.
+  In-tree callers in `serializers/html.py`, `serializers/markdown.py`,
+  and `parsers/html.py` now import directly from `kaos_core.security`.
+  The `_security` module remains for back-compat and re-exports the
+  prior names byte-for-byte; behavior of the predicate is unchanged
+  (same canonicalization algorithm, same blocklist).
+- **`kaos-core` minimum bumped to `>=0.1.0a4`** in `[project.dependencies]`
+  (was `>=0.1.0a1,<0.2`). Required because `kaos_core.security` debuts
+  in 0.1.0a4. The ceiling stays `<0.2`.
+
+## [0.1.0a1] — 2026-05-04
+
+First public alpha release.
 
 ### Added
 

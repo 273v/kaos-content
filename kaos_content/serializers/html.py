@@ -26,7 +26,8 @@ import html as html_lib
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from kaos_content._security import is_safe_url
+from kaos_core.security import is_safe_url
+
 from kaos_content.serializers._revision import (
     ViewMode,
     revision_class,

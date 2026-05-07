@@ -22,15 +22,15 @@ import uuid
 from urllib.parse import urljoin
 
 from kaos_core.logging import get_logger
+from kaos_core.security import is_safe_url as _is_safe_url
 from lxml import html as lxml_html
 
 # lxml ships partial type stubs; ty can't resolve `lxml.etree`. The runtime
 # import is fine — see test_html_serializer / fuzz_html. Suppression is local
 # to this one symbol so other lxml typos still surface as ty errors.
 from lxml.etree import LxmlError  # ty: ignore[unresolved-import]
-from lxml.html import HtmlElement
+from lxml.html import HtmlElement, HTMLParser
 
-from kaos_content._security import is_safe_url as _is_safe_url
 from kaos_content.model.attr import Attr, Caption, Provenance, SourceRef
 from kaos_content.model.blocks import (
     Block,
@@ -66,6 +66,25 @@ from kaos_content.model.metadata import DocumentMetadata
 from kaos_content.model.table import Cell, Row, TableSection
 
 logger = get_logger(__name__)
+
+# XXE-safe parser shared across every parse_html() call. ``no_network=True``
+# blocks resolution of external DTD / entity references (the SYSTEM
+# vector). ``huge_tree=False`` (libxml2 default) keeps the built-in caps on
+# input size and entity expansion that defeat the billion-laughs class.
+# ``recover=True`` preserves the prior permissive behaviour on malformed
+# real-world markup.
+#
+# Note: lxml's HTML parser does not accept the ``resolve_entities`` kwarg
+# (that lives on ``XMLParser``); HTML parsing already does not expand
+# DOCTYPE-declared entities the way XML parsing does, so the explicit
+# guard there is unnecessary. The billion-laughs regression test in
+# ``tests/security/test_security_sec7.py`` confirms the contract.
+_SAFE_HTML_PARSER = HTMLParser(
+    no_network=True,
+    huge_tree=False,
+    recover=True,
+    remove_blank_text=False,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1522,7 +1541,7 @@ def parse_html(
     # (TypeError, MemoryError) is a programmer bug, not a parse failure,
     # and should propagate.
     try:
-        full_doc = lxml_html.document_fromstring(html_content)
+        full_doc = lxml_html.document_fromstring(html_content, parser=_SAFE_HTML_PARSER)
     except (LxmlError, ValueError):
         logger.debug("HTML parse error", exc_info=True)
         return empty_document()
