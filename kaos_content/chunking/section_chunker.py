@@ -31,7 +31,23 @@ class SectionChunker:
     max_chars:
         Maximum character count per chunk (measured by ``extract_text``).
         When a section exceeds this limit, it is split at the next paragraph
-        boundary. 0 means no limit.
+        boundary. 0 means no limit. ``max_chars`` is a fast pre-filter and
+        always runs first.
+    max_tokens:
+        Optional embedding-model token budget per chunk. When set, the
+        chunker runs a follow-up pass that calls
+        ``EmbeddingModel.count_tokens`` and splits any section whose token
+        count exceeds ``max_tokens`` (sentence-boundary splitting for
+        single oversized paragraphs, block-boundary splitting otherwise).
+        Defaults to ``None`` — the cheap char-only path. Requires the
+        optional ``kaos-nlp-transformers`` package when set.
+    model_id:
+        HF Hub embedding model id used to count tokens when
+        ``max_tokens`` is set. ``None`` selects the
+        ``kaos-nlp-transformers`` default (``BAAI/bge-small-en-v1.5``).
+        Different models have different tokenizers and different
+        ``max_seq_len`` defaults — pin to the same model_id you'll feed
+        into the embedding index downstream.
     split_depth:
         Heading depth at which to split. ``split_depth=2`` splits at h1 and h2
         boundaries but not h3+.
@@ -45,10 +61,15 @@ class SectionChunker:
         max_chars: int = 8000,
         split_depth: int = 2,
         overlap_paragraphs: int = 0,
+        *,
+        max_tokens: int | None = None,
+        model_id: str | None = None,
     ) -> None:
         self.max_chars = max_chars
         self.split_depth = split_depth
         self.overlap_paragraphs = overlap_paragraphs
+        self.max_tokens = max_tokens
+        self.model_id = model_id
 
     @classmethod
     def from_outline(
@@ -58,6 +79,8 @@ class SectionChunker:
         max_chars: int = 8000,
         split_depth: int = 2,
         overlap_paragraphs: int = 0,
+        max_tokens: int | None = None,
+        model_id: str | None = None,
         enum_lexicon: str | None = None,
         heading_lexicon: str | None = None,
         hierarchy_lexicon: str | None = None,
@@ -111,6 +134,8 @@ class SectionChunker:
             max_chars=max_chars,
             split_depth=split_depth,
             overlap_paragraphs=overlap_paragraphs,
+            max_tokens=max_tokens,
+            model_id=model_id,
         )
         chunks = chunker.chunk(document)
         return [_attach_heading_path(chunk, document, chunker.split_depth) for chunk in chunks]
@@ -136,6 +161,17 @@ class SectionChunker:
                 sections.extend(self._enforce_max_chars(section))
         else:
             sections = raw_sections
+
+        # Step 2b: Enforce max_tokens — embedding-model token budget.
+        # Runs after max_chars so the cheaper char filter pre-narrows
+        # the candidate set the tokenizer needs to count. Each over-budget
+        # section is re-split at block / sentence boundaries until every
+        # output chunk fits the budget.
+        if self.max_tokens is not None and self.max_tokens > 0:
+            token_sections: list[list] = []
+            for section in sections:
+                token_sections.extend(self._enforce_max_tokens(section))
+            sections = token_sections
 
         if not sections:
             return [document]
@@ -288,6 +324,181 @@ class SectionChunker:
             result.append(current)
 
         return result
+
+    # ── Token-budget enforcement (P6.3 / KNT-601 audit M-2) ─────────────
+
+    def _count_tokens(self, texts: list[str]) -> list[int]:
+        """Return per-text token counts under the configured embedding model.
+
+        Goes through ``kaos_content.search._get_embedding_model`` so the
+        same module-level lru_cache key (model_id) flows through
+        SearchableDocument, search_document, and the chunker. Raises
+        ImportError with the standard install-hint message when
+        kaos-nlp-transformers is missing.
+        """
+        from kaos_content.search import _ensure_transformers_available, _get_embedding_model
+
+        _ensure_transformers_available()
+        model = _get_embedding_model(self.model_id)
+        return list(model.count_tokens(texts))
+
+    def _enforce_max_tokens(self, blocks: list) -> list[list]:
+        """Re-split ``blocks`` so every output section fits within ``max_tokens``.
+
+        Mirrors the discipline used by ``_enforce_max_chars`` but with the
+        embedding model's tokenizer as the budget oracle:
+
+        1. Compute the section's full token count via
+           :meth:`_count_tokens`. If it fits, return the section unchanged.
+        2. For oversized single Paragraph blocks that on their own exceed
+           the budget, run :meth:`_split_paragraph_at_sentences` (which
+           consults ``max_chars`` only) and then re-pack the resulting
+           sub-paragraphs against ``max_tokens``. A single sentence longer
+           than the budget is emitted as its own over-budget chunk.
+        3. Pack blocks greedily into sub-sections, never exceeding
+           ``max_tokens`` per pack except for unsplittable blocks
+           (tables, code, math) that must travel whole.
+
+        ``max_tokens`` is checked AFTER ``max_chars`` so the cheap filter
+        does the bulk of the work; only sections that survive the char
+        filter pay the tokenizer cost.
+        """
+        # The full-section count first; cheap when the section already
+        # fits and avoids the per-block tokenizer pass.
+        full_text = " ".join(extract_text(b) for b in blocks)
+        if not full_text:
+            return [blocks]
+        full_count = self._count_tokens([full_text])[0]
+        assert self.max_tokens is not None  # narrowed by chunk() entry
+        if full_count <= self.max_tokens:
+            return [blocks]
+
+        # Oversized single Paragraph: lower to sentences first, then
+        # repack against the token budget. Use the token-aware splitter
+        # rather than `_split_paragraph_at_sentences` (which is bound to
+        # `max_chars` and would no-op when the paragraph fits the char
+        # budget but blows the token budget — exactly the case we care
+        # about here).
+        expanded: list = []
+        for block in blocks:
+            if block.node_type == "paragraph":
+                block_count = self._count_tokens([extract_text(block)])[0]
+                if block_count > self.max_tokens:
+                    expanded.extend(self._split_paragraph_at_sentences_for_tokens(block))
+                    continue
+            expanded.append(block)
+
+        # Per-block token counts in one batched call for the pack loop.
+        block_texts = [extract_text(b) for b in expanded]
+        block_counts = self._count_tokens(block_texts)
+
+        result: list[list] = []
+        current: list = []
+        current_tokens = 0
+        for block, block_count in zip(expanded, block_counts, strict=True):
+            if block.node_type in _UNSPLITTABLE:
+                current.append(block)
+                current_tokens += block_count
+                continue
+
+            if (
+                current_tokens + block_count > self.max_tokens
+                and current
+                and block.node_type != "heading"
+            ):
+                result.append(current)
+                current = [block]
+                current_tokens = block_count
+            else:
+                current.append(block)
+                current_tokens += block_count
+
+        if current:
+            result.append(current)
+
+        return result
+
+    def _split_paragraph_at_sentences_for_tokens(self, paragraph: Any) -> list[Any]:
+        """Token-budget twin of :meth:`_split_paragraph_at_sentences`.
+
+        Same sentence-segment + sub-paragraph repack pipeline, but the
+        cap is ``max_tokens`` measured by ``EmbeddingModel.count_tokens``
+        instead of character length. Used by :meth:`_enforce_max_tokens`
+        when a paragraph fits the char budget but exceeds the token
+        budget. A single sentence longer than ``max_tokens`` becomes its
+        own over-budget sub-paragraph (same conservative discipline as
+        the char twin — better one over-budget chunk than truncating
+        mid-sentence).
+        """
+        try:
+            from kaos_nlp_core.segmentation import segment_sentences
+        except ImportError:
+            return [paragraph]
+
+        from kaos_content.model.blocks import Paragraph
+        from kaos_content.model.inlines import Text
+
+        assert self.max_tokens is not None  # narrowed by _enforce_max_tokens
+
+        text = extract_text(paragraph)
+        if not text:
+            return [paragraph]
+
+        try:
+            spans = segment_sentences(text)
+            sentences = [text[s.start : s.end].strip() for s in spans]
+        except Exception:
+            logger.warning(
+                "Sentence segmentation failed; emitting paragraph unsplit",
+                extra={"paragraph_chars": len(text)},
+                exc_info=True,
+            )
+            return [paragraph]
+        sentences = [s for s in sentences if s]
+        if not sentences:
+            return [paragraph]
+
+        # Batch tokenize each candidate combination once at startup. Doing
+        # one count_tokens([...]) call up front is much cheaper than
+        # repeated single-string calls inside the pack loop.
+        sentence_tokens = self._count_tokens(sentences)
+
+        sub_paragraphs: list[Any] = []
+        current_text = ""
+        current_tokens = 0
+        for sent, st in zip(sentences, sentence_tokens, strict=True):
+            if not current_text:
+                current_text = sent
+                current_tokens = st
+                continue
+            joiner = " " if not current_text.endswith((" ", "\n")) else ""
+            if current_tokens + st <= self.max_tokens:
+                current_text = current_text + joiner + sent
+                # Token counts aren't strictly additive across the joiner,
+                # but they're close enough for budgeting purposes — re-
+                # measuring per concat would dominate runtime. We accept a
+                # tiny slack here (a token or two) in exchange for O(N)
+                # rather than O(N^2) tokenizer calls.
+                current_tokens += st
+            else:
+                sub_paragraphs.append(
+                    Paragraph(
+                        children=(Text(value=current_text),),
+                        provenance=paragraph.provenance,
+                        attr=paragraph.attr,
+                    )
+                )
+                current_text = sent
+                current_tokens = st
+        if current_text:
+            sub_paragraphs.append(
+                Paragraph(
+                    children=(Text(value=current_text),),
+                    provenance=paragraph.provenance,
+                    attr=paragraph.attr,
+                )
+            )
+        return sub_paragraphs
 
     def _split_paragraph_at_sentences(self, paragraph: Any) -> list[Any]:
         """Pack the sentences of an oversized paragraph into ≤``max_chars``

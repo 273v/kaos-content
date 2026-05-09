@@ -22,6 +22,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now memoizes ``EmbeddingModel.load(model_id=...)`` via an
   ``lru_cache(maxsize=4)``; previously a single hybrid query loaded
   the model four times (audit finding H-3).
+- **Token-aware chunking via ``SectionChunker(max_tokens=...,
+  model_id=...)``.** When set, a follow-up pass calls
+  ``EmbeddingModel.count_tokens`` and re-splits any chunk whose
+  token count exceeds the budget — at block boundaries when possible,
+  at sentence boundaries within an oversized paragraph as a fallback.
+  The default ``max_tokens=None`` keeps the cheap char-only path
+  unchanged. ``SectionChunker.from_outline`` and
+  ``SearchableDocument.chunks(...)`` accept the same parameters; the
+  latter defaults ``model_id`` to the index's model so chunker output
+  and dense retrieval stay aligned by default. Addresses KNT-601
+  consumer-audit finding M-2 (oversized chunks getting silently
+  truncated by the embedding model's tokenizer at ``max_seq_len``).
 
 ### Changed
 

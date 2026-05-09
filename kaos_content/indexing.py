@@ -457,6 +457,8 @@ class SearchableDocument:
         max_chars: int = 8000,
         split_depth: int = 2,
         overlap_paragraphs: int = 0,
+        max_tokens: int | None = None,
+        model_id: str | None = None,
     ) -> list[ContentDocument]:
         """Convenience: chunk the document using SectionChunker.
 
@@ -464,6 +466,17 @@ class SearchableDocument:
             max_chars: Maximum characters per chunk.
             split_depth: Heading depth at which to split.
             overlap_paragraphs: Number of paragraphs to overlap between chunks.
+            max_tokens: Optional embedding-model token budget per chunk.
+                When set, chunks that exceed this token count under the
+                selected model's tokenizer are further split (sentence
+                boundaries within paragraphs, block boundaries otherwise).
+                Requires kaos-nlp-transformers. ``None`` skips the
+                token check (cheap char-only path).
+            model_id: HF Hub embedding model id used to count tokens
+                when ``max_tokens`` is set. ``None`` resolves to
+                ``self.model_id`` (the model the index was built with),
+                so chunker output and dense retrieval stay aligned by
+                default.
 
         Returns:
             List of ContentDocument chunks.
@@ -474,6 +487,8 @@ class SearchableDocument:
             max_chars=max_chars,
             split_depth=split_depth,
             overlap_paragraphs=overlap_paragraphs,
+            max_tokens=max_tokens,
+            model_id=model_id if model_id is not None else self._model_id,
         )
         return chunker.chunk(self._document)
 

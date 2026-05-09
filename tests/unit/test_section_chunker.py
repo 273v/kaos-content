@@ -638,3 +638,159 @@ class TestFromOutline:
             # No [nlp] extra installed — accept the skip rather than fail.
             return
         assert len(chunks_on) > 1, f"promotion should produce >1 chunks, got {len(chunks_on)}"
+
+
+# ─── KNT-601 P6.3: token-aware chunking ─────────────────────────────────────
+
+
+class TestMaxTokens:
+    """`max_tokens` enforces a token-budget post-pass.
+
+    Patches `kaos_content.search._get_embedding_model` with a fake
+    tokenizer (whitespace-split → token count) so the test runs whether
+    or not kaos-nlp-transformers is installed. The whitespace tokenizer
+    over-estimates real BPE counts but is monotonic and deterministic,
+    which is enough to exercise the budget logic.
+    """
+
+    @staticmethod
+    def _patch_token_layer(monkeypatch) -> dict[str, list[str | None]]:
+        """Replace `_get_embedding_model` with a whitespace-tokenizer fake.
+
+        Returns a dict logging seen model_ids and the texts each
+        count_tokens call counted, so callers can assert plumbing as
+        well as splitting behavior.
+        """
+        from kaos_content import search as search_mod
+
+        log: dict[str, list[str | None]] = {"model_ids": [], "count_calls": []}
+
+        class _FakeModel:
+            dim = 4
+
+            def count_tokens(self, texts: list[str]) -> list[int]:
+                log["count_calls"].extend(texts)
+                return [len(t.split()) for t in texts]
+
+            def embed(self, _texts: list[str]) -> object:
+                # Not used by chunking, only by SearchableDocument.
+                msg = "_FakeModel.embed should not be called from chunker tests"
+                raise AssertionError(msg)
+
+        def _fake_get(model_id: str | None) -> _FakeModel:
+            log["model_ids"].append(model_id)
+            return _FakeModel()
+
+        monkeypatch.setattr(search_mod, "_get_embedding_model", _fake_get)
+        monkeypatch.setattr(search_mod, "_ensure_transformers_available", lambda: None)
+        return log
+
+    def test_under_budget_passes_through_unchanged(self, monkeypatch) -> None:
+        """A short document under the token budget yields one chunk."""
+        log = self._patch_token_layer(monkeypatch)
+
+        doc = (
+            DocumentBuilder(title="Short")
+            .heading(1, "Title")
+            .paragraph("This document has only seven small words.")
+            .build()
+        )
+
+        # 100-token budget, char-budget off so only the token pass matters.
+        chunker = SectionChunker(max_chars=0, max_tokens=100, split_depth=1)
+        chunks = chunker.chunk(doc)
+
+        assert len(chunks) == 1
+        assert log["model_ids"], "expected the chunker to consult the embedding model"
+
+    def test_over_budget_splits_at_block_boundary(self, monkeypatch) -> None:
+        """A section that exceeds max_tokens splits at paragraph boundaries."""
+        self._patch_token_layer(monkeypatch)
+
+        # Three paragraphs of ~10 whitespace-tokens each; budget of 15 forces
+        # them to be packed into 2-3 chunks.
+        big = "alpha beta gamma delta epsilon zeta eta theta iota kappa"
+        doc = (
+            DocumentBuilder(title="Big")
+            .heading(1, "Section")
+            .paragraph(big)
+            .paragraph(big)
+            .paragraph(big)
+            .build()
+        )
+
+        chunker = SectionChunker(max_chars=0, max_tokens=15, split_depth=1)
+        chunks = chunker.chunk(doc)
+
+        assert len(chunks) > 1, "expected token budget to force multiple chunks"
+        # No chunk packs more than 2 of the 10-token paragraphs (the heading
+        # carries its own ~1 token; budget=15 fits one paragraph of 10 with
+        # the heading attached but not two).
+        for ch in chunks:
+            tcount = sum(len(extract_text(b).split()) for b in ch.body)
+            assert tcount <= 25, f"chunk has {tcount} tokens, expected <= 25"
+
+    def test_oversized_paragraph_split_at_sentences(self, monkeypatch) -> None:
+        """A single paragraph that blows max_tokens splits at sentence boundaries.
+
+        Requires kaos-nlp-core for sentence segmentation; skips cleanly when
+        the optional [nlp] extra is missing.
+        """
+        try:
+            import kaos_nlp_core.segmentation  # noqa: F401
+        except ImportError:
+            import pytest
+
+            pytest.skip("kaos-nlp-core not installed")
+
+        self._patch_token_layer(monkeypatch)
+
+        # Build a 5-sentence paragraph; each sentence ~6 whitespace-tokens.
+        long_para = (
+            "First sentence has six tokens here. "
+            "Second sentence has six tokens here. "
+            "Third sentence has six tokens here. "
+            "Fourth sentence has six tokens here. "
+            "Fifth sentence has six tokens here."
+        )
+        doc = DocumentBuilder(title="Long").paragraph(long_para).build()
+
+        # budget=10 is below 6+6=12, so the chunker must drop to sentence
+        # granularity and pack 1 sentence per sub-paragraph.
+        chunker = SectionChunker(max_chars=0, max_tokens=10, split_depth=1)
+        chunks = chunker.chunk(doc)
+
+        # Either the chunker emits multiple chunks OR it emits one chunk
+        # containing multiple sentence-sized sub-paragraphs. Both are
+        # acceptable per the spec; assert that we did NOT keep the
+        # original paragraph whole.
+        total_paragraphs = sum(1 for c in chunks for b in c.body if b.node_type == "paragraph")
+        assert total_paragraphs > 1, (
+            f"expected sentence-level split; got {total_paragraphs} paragraphs"
+        )
+
+    def test_model_id_propagates_to_token_layer(self, monkeypatch) -> None:
+        """Custom model_id flows through to _get_embedding_model."""
+        log = self._patch_token_layer(monkeypatch)
+
+        doc = DocumentBuilder(title="Doc").paragraph("alpha beta gamma delta epsilon zeta").build()
+        chunker = SectionChunker(
+            max_chars=0,
+            max_tokens=3,
+            split_depth=1,
+            model_id="custom/model",
+        )
+        chunker.chunk(doc)
+
+        assert log["model_ids"], "_get_embedding_model was not called"
+        assert all(mid == "custom/model" for mid in log["model_ids"]), log["model_ids"]
+
+    def test_max_tokens_unset_skips_token_layer(self, monkeypatch) -> None:
+        """The default `max_tokens=None` never touches the token layer."""
+        log = self._patch_token_layer(monkeypatch)
+
+        doc = DocumentBuilder(title="Doc").paragraph("hello world").build()
+        chunker = SectionChunker(max_chars=8000, split_depth=1)  # no max_tokens
+        chunker.chunk(doc)
+
+        assert not log["model_ids"], f"expected no embedding-model call; got {log['model_ids']}"
