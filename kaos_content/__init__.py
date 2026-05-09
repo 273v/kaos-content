@@ -221,10 +221,10 @@ try:
 except ImportError:
     pass
 
-# [nlp] extra — SearchableDocument needs kaos-nlp-core.
+# [nlp] extra — SearchableDocument / SearchableCorpus need kaos-nlp-core.
 _INDEXING_AVAILABLE = False
 try:
-    from kaos_content.indexing import SearchableDocument  # noqa: F401
+    from kaos_content.indexing import SearchableCorpus, SearchableDocument  # noqa: F401
 
     _INDEXING_AVAILABLE = True
 except ImportError:
@@ -421,6 +421,7 @@ if _LAYOUT_AVAILABLE:
 if _MARKDOWN_AVAILABLE:
     __all__.append("parse_markdown")
 
-# [nlp] extra — SearchableDocument needs kaos-nlp-core.
+# [nlp] extra — SearchableDocument / SearchableCorpus need kaos-nlp-core.
 if _INDEXING_AVAILABLE:
     __all__.append("SearchableDocument")
+    __all__.append("SearchableCorpus")

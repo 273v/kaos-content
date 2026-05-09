@@ -34,6 +34,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and dense retrieval stay aligned by default. Addresses KNT-601
   consumer-audit finding M-2 (oversized chunks getting silently
   truncated by the embedding model's tokenizer at ``max_seq_len``).
+- **`SearchableCorpus(documents=[ContentDocument, ...])` — the
+  corpus-level analog of ``SearchableDocument``.** Builds one shared
+  BM25 inverted index (so IDF is computed across the whole corpus,
+  not per-document) and shares one embedding matrix across all dense
+  queries. ``SearchResult`` gains two additive optional fields —
+  ``doc_index`` (cheap O(1) handle into ``corpus.documents``) and
+  ``doc_uri`` (human-readable URL) — so multi-document hits are
+  fully addressable. Three retrieval modes mirror
+  ``SearchableDocument`` (``"bm25"`` / ``"embeddings"`` / ``"hybrid"``).
+  BM25 index is eager, embedding matrix lazy; ``max_embed_rows``
+  guardrail (default 200K) prevents accidental multi-GB allocations.
+  Backwards-compatible: existing single-document ``SearchResult``
+  callers see ``doc_index = doc_uri = None``. See
+  ``docs/SEARCHABLE_CORPUS.md`` for the full design rationale.
 
 ### Changed
 

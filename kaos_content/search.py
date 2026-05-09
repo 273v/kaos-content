@@ -109,6 +109,23 @@ class SearchResult:
     immediate section. Empty when the hit is in document preamble or when
     the section has no ancestors."""
 
+    doc_index: int | None = None
+    """Index into ``SearchableCorpus.documents`` for the source document.
+
+    Populated only by :class:`SearchableCorpus.search`; ``None`` from
+    :func:`search_document` and :class:`SearchableDocument.search` (per-
+    document searches don't have a corpus axis). Backwards-compatible
+    additive field — existing single-doc callers see no behavioral
+    change."""
+
+    doc_uri: str | None = None
+    """URI of the source document (e.g. ``metadata.source.uri``).
+
+    Populated only by :class:`SearchableCorpus.search`. ``None`` from
+    single-document searches. Useful when downstream tooling wants the
+    human-readable / URL-shaped handle without round-tripping through
+    ``SearchableCorpus.documents[doc_index]``."""
+
 
 @dataclass(frozen=True, slots=True)
 class SearchResults:
@@ -569,16 +586,23 @@ def _records_to_search_results(
     records: list[dict[str, Any]],
     indices: list[int],
     scores: list[float],
-    section_titles: dict[str, str | None],
-    heading_paths: dict[str, tuple[str, ...]],
+    section_titles: dict[Any, str | None],
+    heading_paths: dict[Any, tuple[str, ...]],
     preview_length: int,
     query: str,
     top_k: int,
+    doc_uris: list[str] | None = None,
 ) -> SearchResults:
     """Materialize SearchResults from row indices + scores.
 
     Shared between the embeddings and hybrid paths — both compute a
     ranked list of record indices and need the same provenance fan-out.
+    Records may carry an optional ``doc_index`` field (populated by
+    :class:`SearchableCorpus`); when present, the result's ``doc_index``
+    + ``doc_uri`` fields are filled. ``section_titles`` and
+    ``heading_paths`` are keyed by ``section_ref`` for single-document
+    callers and by ``(doc_index, section_ref)`` for the corpus path —
+    the dict's actual key shape is opaque to this helper.
     """
     scored: list[SearchResult] = []
     for idx, score in zip(indices, scores, strict=True):
@@ -587,6 +611,18 @@ def _records_to_search_results(
         if preview_length > 0 and len(text) > preview_length:
             text = text[:preview_length] + "..."
         sec_ref = rec.get("section_ref")
+        doc_index = rec.get("doc_index")
+        # Section-title and heading-path lookup keys differ between
+        # single-doc (sec_ref) and corpus (doc_index, sec_ref) callers.
+        # Accept either; the dict knows its own key shape.
+        section_key = (doc_index, sec_ref) if doc_index is not None else sec_ref
+        title = section_titles.get(section_key) if sec_ref else None
+        path = heading_paths.get(section_key, ()) if sec_ref else ()
+        doc_uri = (
+            doc_uris[doc_index]
+            if doc_uris is not None and doc_index is not None and 0 <= doc_index < len(doc_uris)
+            else None
+        )
         scored.append(
             SearchResult(
                 text=text,
@@ -594,10 +630,12 @@ def _records_to_search_results(
                 block_ref=rec.get("block_ref", ""),
                 page=rec.get("page"),
                 section_ref=sec_ref,
-                section_title=section_titles.get(sec_ref) if sec_ref else None,
+                section_title=title,
                 char_start=rec.get("char_start"),
                 char_end=rec.get("char_end"),
-                heading_path=heading_paths.get(sec_ref, ()) if sec_ref else (),
+                heading_path=path,
+                doc_index=doc_index,
+                doc_uri=doc_uri,
             )
         )
 
