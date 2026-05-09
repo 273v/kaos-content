@@ -7,6 +7,7 @@ carry char_start/char_end at sentence level and AST addresses at both levels.
 from __future__ import annotations
 
 import importlib.util
+from collections.abc import Iterable
 
 import pytest
 
@@ -303,3 +304,131 @@ class TestSearchableDocumentEmpty:
         results = sdoc.search("anything")
         assert results.total_matches == 0
         assert results.results == []
+
+
+# ─── KNT-601 P6.2: model_id propagation ─────────────────────────────────────
+#
+# The embedding-backed retrieval modes ("embeddings", "hybrid") accept a
+# `model_id` argument that flows from `search_document` / `SearchableDocument`
+# /` search_corpus` down to `kaos_nlp_transformers.EmbeddingModel.load`. We
+# verify the plumbing without requiring the real Rust extension by
+# monkeypatching the module-level cache helper — the real load is exercised
+# in tests/integration when kaos-nlp-transformers is installed.
+
+
+class TestModelIdPropagation:
+    """`model_id` flows from public surface to `EmbeddingModel.load`.
+
+    Patches `kaos_content.search._get_embedding_model` so the test runs
+    whether or not kaos-nlp-transformers is installed. The fake records
+    the model_id seen on each call and returns a numpy-backed stub
+    sufficient for the embedding code path.
+    """
+
+    @staticmethod
+    def _patch_embedding_layer(monkeypatch: pytest.MonkeyPatch) -> list[str | None]:
+        """Replace `_get_embedding_model` with a fake; return the call log.
+
+        Also bypasses the optional-dep check so embedding paths don't
+        short-circuit on missing kaos-nlp-transformers.
+        """
+        import numpy as np
+
+        from kaos_content import search as search_mod
+
+        seen: list[str | None] = []
+
+        class _FakeModel:
+            dim = 4
+
+            def embed(self, texts: Iterable[str]) -> object:
+                # Accept any sequence; return a deterministic (N, dim) matrix.
+                n = len(list(texts))
+                return np.ones((n, self.dim), dtype=np.float32)
+
+        def _fake_get(model_id: str | None) -> _FakeModel:
+            seen.append(model_id)
+            return _FakeModel()
+
+        monkeypatch.setattr(search_mod, "_get_embedding_model", _fake_get)
+        monkeypatch.setattr(search_mod, "_ensure_transformers_available", lambda: None)
+        # `kaos_content.indexing` re-imports `_ensure_transformers_available`
+        # at module load, so its rebound reference also needs patching.
+        from kaos_content import indexing as indexing_mod
+
+        monkeypatch.setattr(indexing_mod, "_ensure_transformers_available", lambda: None)
+        return seen
+
+    def test_default_model_id_is_none(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        multi_section_doc: ContentDocument,
+    ) -> None:
+        seen = self._patch_embedding_layer(monkeypatch)
+        from kaos_content.search import search_document
+
+        results = search_document(
+            multi_section_doc,
+            "breach",
+            retrieval="embeddings",
+        )
+        # Returns *something* (results may be empty or non-empty depending on
+        # the fake's similarity outputs; the contract here is propagation).
+        assert results is not None
+        assert seen, "expected at least one _get_embedding_model call"
+        assert all(mid is None for mid in seen), seen
+
+    def test_explicit_model_id_propagates_through_search_document(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        multi_section_doc: ContentDocument,
+    ) -> None:
+        seen = self._patch_embedding_layer(monkeypatch)
+        from kaos_content.search import search_document
+
+        search_document(
+            multi_section_doc,
+            "breach",
+            retrieval="embeddings",
+            model_id="intfloat/e5-large-v2",
+        )
+        assert seen and all(mid == "intfloat/e5-large-v2" for mid in seen), seen
+
+    @pytest.mark.skipif(not _has_nlp, reason="kaos-nlp-core not installed")
+    def test_searchable_document_records_and_propagates_model_id(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        multi_section_doc: ContentDocument,
+    ) -> None:
+        seen = self._patch_embedding_layer(monkeypatch)
+        from kaos_content.indexing import SearchableDocument
+
+        sdoc = SearchableDocument(
+            multi_section_doc,
+            retrieval="embeddings",
+            model_id="custom/model",
+        )
+        assert sdoc.model_id == "custom/model"
+
+        sdoc.search("breach")
+        # Both _embed_texts (corpus) and _embed_query (query) must see the
+        # same custom model id — H-1/H-2 fix.
+        assert seen, "expected at least one _get_embedding_model call"
+        assert all(mid == "custom/model" for mid in seen), seen
+
+    @pytest.mark.skipif(not _has_nlp, reason="kaos-nlp-core not installed")
+    def test_hybrid_propagates_model_id(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        multi_section_doc: ContentDocument,
+    ) -> None:
+        seen = self._patch_embedding_layer(monkeypatch)
+        from kaos_content.indexing import SearchableDocument
+
+        sdoc = SearchableDocument(
+            multi_section_doc,
+            retrieval="hybrid",
+            model_id="custom/model",
+        )
+        sdoc.search("breach", rerank_top_k=3, rerank_candidate_k=10)
+        assert seen and all(mid == "custom/model" for mid in seen), seen

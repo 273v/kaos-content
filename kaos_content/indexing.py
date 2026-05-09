@@ -74,6 +74,7 @@ class SearchableDocument:
         "_document",
         "_heading_paths",
         "_level",
+        "_model_id",
         "_records",
         "_retrieval",
         "_searcher",
@@ -88,7 +89,29 @@ class SearchableDocument:
         *,
         level: Literal["paragraph", "sentence"] = "paragraph",
         retrieval: RetrievalMode = "bm25",
+        model_id: str | None = None,
     ) -> None:
+        """Build a searchable index over ``document``.
+
+        Args:
+            document: The ContentDocument to index.
+            level: Search granularity — ``"paragraph"`` or ``"sentence"``.
+                Sentence-level requires kaos-nlp-core.
+            retrieval: Retrieval mode (see module docstring).
+            model_id: HF Hub embedding model id for ``"embeddings"`` and
+                ``"hybrid"`` modes. ``None`` selects the
+                kaos-nlp-transformers default
+                (``KaosNLPTransformersSettings.default_model``). The
+                cached embedding matrix is keyed implicitly on this
+                value — construct a new ``SearchableDocument`` to
+                switch models. Ignored for ``"bm25"``.
+
+        Raises:
+            ImportError: If kaos-nlp-core is not installed (BM25), or
+                if ``retrieval`` requests embeddings and
+                kaos-nlp-transformers is not installed.
+            ValueError: If ``retrieval`` is not one of the supported modes.
+        """
         if retrieval not in ("bm25", "embeddings", "hybrid"):
             msg = (
                 f"Unknown retrieval mode {retrieval!r}. "
@@ -104,6 +127,7 @@ class SearchableDocument:
         self._document = document
         self._level = level
         self._retrieval = retrieval
+        self._model_id = model_id
 
         # For sentence-level, wire up the Punkt tokenizer as segmenter
         # so DocumentView.sentences (and iter_sentence_units) work.
@@ -204,7 +228,7 @@ class SearchableDocument:
         from kaos_content.search import _embed_texts
 
         texts = [r["text"] for r in self._records]
-        self._doc_embeddings = _embed_texts(texts)
+        self._doc_embeddings = _embed_texts(texts, model_id=self._model_id)
         return self._doc_embeddings
 
     def search(
@@ -307,7 +331,7 @@ class SearchableDocument:
         from kaos_content.search import _embed_query
 
         doc_vecs = self._ensure_doc_embeddings()
-        q_vec = _embed_query(query)
+        q_vec = _embed_query(query, model_id=self._model_id)
         sims = doc_vecs @ q_vec
         n = len(self._records)
         k = min(top_k, n)
@@ -366,7 +390,7 @@ class SearchableDocument:
         # rather than re-embedding.
         doc_vecs = self._ensure_doc_embeddings()
         cand_vecs = doc_vecs[candidate_indices]
-        q_vec = _embed_query(query)
+        q_vec = _embed_query(query, model_id=self._model_id)
         sims = cand_vecs @ q_vec
 
         n = len(candidate_indices)
@@ -397,6 +421,15 @@ class SearchableDocument:
     def retrieval(self) -> str:
         """The retrieval mode (``"bm25"``, ``"embeddings"``, or ``"hybrid"``)."""
         return self._retrieval
+
+    @property
+    def model_id(self) -> str | None:
+        """The HF Hub embedding model id, or ``None`` for the default.
+
+        Read-only. To switch models, construct a new ``SearchableDocument``
+        — the cached embedding matrix is implicitly keyed on this value.
+        """
+        return self._model_id
 
     @property
     def document(self) -> ContentDocument:

@@ -11,8 +11,9 @@ and use this shared search.
 **Retrieval modes** (P6 hybrid retrieval):
 
 * ``"bm25"`` (default): pure BM25 via kaos-nlp-core (or TF fallback).
-* ``"embeddings"``: pure dense retrieval via
-  ``kaos-nlp-transformers`` (``BAAI/bge-small-en-v1.5``).
+* ``"embeddings"``: pure dense retrieval via ``kaos-nlp-transformers``.
+  The embedding model is selectable via the ``model_id`` argument; it
+  defaults to ``KaosNLPTransformersSettings.default_model``.
 * ``"hybrid"``: BM25 picks ``rerank_candidate_k`` candidates, embedding
   cosine similarity reranks them, return top ``rerank_top_k``.
 
@@ -40,6 +41,8 @@ Usage::
 
 from __future__ import annotations
 
+import functools
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -134,6 +137,7 @@ def search_document(
     retrieval: RetrievalMode = "bm25",
     rerank_top_k: int = 10,
     rerank_candidate_k: int = HYBRID_DEFAULT_CANDIDATE_K,
+    model_id: str | None = None,
 ) -> SearchResults:
     """Search within a ContentDocument by text query.
 
@@ -157,6 +161,12 @@ def search_document(
         rerank_candidate_k: How many BM25 candidates to feed into the
             embedding reranker for ``"hybrid"`` mode. Larger values
             improve recall at the cost of more embedding inference.
+        model_id: HF Hub model id for the embedding model used by
+            ``"embeddings"`` and ``"hybrid"`` modes (e.g.
+            ``"intfloat/e5-large-v2"``). ``None`` selects the
+            kaos-nlp-transformers default
+            (``KaosNLPTransformersSettings.default_model``). Ignored
+            for ``"bm25"``.
 
     Returns:
         SearchResults with matching results and pagination metadata.
@@ -193,6 +203,7 @@ def search_document(
             top_k=top_k,
             preview_length=preview_length,
             level=level,
+            model_id=model_id,
         )
 
     if retrieval == "hybrid":
@@ -203,6 +214,7 @@ def search_document(
             preview_length=preview_length,
             level=level,
             candidate_k=rerank_candidate_k,
+            model_id=model_id,
         )
 
     # retrieval == "bm25" — preserve original behavior exactly.
@@ -232,13 +244,34 @@ def _ensure_transformers_available() -> None:
         msg = (
             "Embedding-based retrieval requires the optional "
             "'kaos-nlp-transformers' package. "
-            "Fix: `pip install kaos-nlp-transformers` (or "
-            "`uv add kaos-nlp-transformers`, or "
-            "`pip install kaos-content[transformers]` to pull it as an extra). "
+            "Fix: `pip install kaos-nlp-transformers>=0.2.0a1` (or "
+            "`uv add kaos-nlp-transformers`). "
             "Alternative: use retrieval='bm25' for lexical-only search "
             "with no extra dependencies."
         )
         raise ImportError(msg) from exc
+
+
+# Module-level model cache. Loading a kaos-nlp-transformers ``EmbeddingModel``
+# is cheap on the second call (the Rust ``ort`` backend caches the
+# session) but the Python-side wrapper still re-resolves the registry,
+# probes capabilities, and hits ``hf-hub`` for revision pinning each
+# time. KNT-601 audit finding H-3: a single hybrid query previously
+# called ``load()`` four times. lru_cache(maxsize=4) keyed on model_id
+# (None ⇒ default) returns the same wrapper across the per-text /
+# per-query call sites.
+@functools.lru_cache(maxsize=4)
+def _get_embedding_model(model_id: str | None) -> Any:
+    """Cached ``EmbeddingModel`` keyed on ``model_id``.
+
+    ``None`` resolves to the kaos-nlp-transformers default
+    (``KaosNLPTransformersSettings.default_model``). Caller is
+    responsible for guarding the import — ``_ensure_transformers_available``
+    has already run by the time we get here.
+    """
+    from kaos_nlp_transformers import EmbeddingModel  # ty: ignore[unresolved-import]
+
+    return EmbeddingModel.load(model_id=model_id) if model_id else EmbeddingModel.load()
 
 
 # ─── BM25 search via kaos-nlp-core ──────────────────────────────────────────
@@ -578,31 +611,32 @@ def _records_to_search_results(
     )
 
 
-def _embed_texts(texts: list[str]) -> Any:
+def _embed_texts(texts: Iterable[str], *, model_id: str | None = None) -> Any:
     """Return an L2-normalized (N, dim) numpy array of dense embeddings.
 
-    Uses kaos-nlp-transformers' default model (bge-small-en-v1.5).
-    Caller is responsible for guarding the import — _ensure_transformers_available
-    has already run by the time we get here.
+    Uses the kaos-nlp-transformers model selected by ``model_id`` — None
+    resolves to the package default (``KaosNLPTransformersSettings.default_model``,
+    currently ``BAAI/bge-small-en-v1.5``). Caller is responsible for
+    guarding the import — ``_ensure_transformers_available`` has already
+    run by the time we get here.
     """
     import numpy as np
-    from kaos_nlp_transformers import EmbeddingModel  # ty: ignore[unresolved-import]
 
-    model = EmbeddingModel.load()
-    if not texts:
+    text_list = list(texts)
+    model = _get_embedding_model(model_id)
+    if not text_list:
         return np.zeros((0, model.dim), dtype=np.float32)
-    vecs = model.embed(texts)
+    vecs = model.embed(text_list)
     norms = np.linalg.norm(vecs, axis=1, keepdims=True)
     norms = np.where(norms == 0, 1.0, norms)
     return (vecs / norms).astype(np.float32)
 
 
-def _embed_query(query: str) -> Any:
+def _embed_query(query: str, *, model_id: str | None = None) -> Any:
     """Return an L2-normalized (dim,) numpy vector for ``query``."""
     import numpy as np
-    from kaos_nlp_transformers import EmbeddingModel  # ty: ignore[unresolved-import]
 
-    model = EmbeddingModel.load()
+    model = _get_embedding_model(model_id)
     q = model.embed([query])[0]
     n = float(np.linalg.norm(q))
     if n > 0:
@@ -617,6 +651,7 @@ def _search_embeddings(
     top_k: int,
     preview_length: int,
     level: Literal["paragraph", "sentence"],
+    model_id: str | None = None,
 ) -> SearchResults:
     """Pure dense retrieval via cosine similarity over passage embeddings.
 
@@ -633,8 +668,8 @@ def _search_embeddings(
         return SearchResults(results=[], total_matches=0, has_more=False, query=query)
 
     texts = [r["text"] for r in records]
-    doc_vecs = _embed_texts(texts)
-    q_vec = _embed_query(query)
+    doc_vecs = _embed_texts(texts, model_id=model_id)
+    q_vec = _embed_query(query, model_id=model_id)
 
     sims = doc_vecs @ q_vec
     n = len(records)
@@ -670,6 +705,7 @@ def _search_hybrid(
     preview_length: int,
     level: Literal["paragraph", "sentence"],
     candidate_k: int,
+    model_id: str | None = None,
 ) -> SearchResults:
     """BM25 candidate set + embedding rerank.
 
@@ -726,8 +762,8 @@ def _search_hybrid(
 
     # Embedding rerank over the candidate pool.
     cand_texts = [records[i]["text"] for i in candidate_indices]
-    cand_vecs = _embed_texts(cand_texts)
-    q_vec = _embed_query(query)
+    cand_vecs = _embed_texts(cand_texts, model_id=model_id)
+    q_vec = _embed_query(query, model_id=model_id)
     sims = cand_vecs @ q_vec
 
     n = len(candidate_indices)
@@ -914,6 +950,7 @@ async def search_corpus(
     level: Literal["paragraph", "sentence"] = "paragraph",
     retrieval: RetrievalMode = "bm25",
     rerank_top_k: int = 10,
+    model_id: str | None = None,
 ) -> list[RetrievalResult]:
     """Search across multiple documents, returning globally ranked results.
 
@@ -931,6 +968,16 @@ async def search_corpus(
         query: The search query text.
         top_k: Maximum number of results to return (globally ranked).
         level: Search granularity -- ``"paragraph"`` or ``"sentence"``.
+        retrieval: Retrieval mode (see :func:`search_document`).
+        rerank_top_k: Hybrid mode only — see :func:`search_document`.
+        model_id: HF Hub embedding model id for ``"embeddings"`` and
+            ``"hybrid"`` modes. When ``documents`` is a list of
+            ``SearchableDocument`` instances and the caller wants the
+            same model used inside each one, the ``SearchableDocument``s
+            should be constructed with the same ``model_id``. The
+            argument here only affects the dict-mode synthetic
+            documents this function builds. ``None`` selects the
+            kaos-nlp-transformers default.
 
     Returns:
         Globally ranked list of ``RetrievalResult`` with provenance.
@@ -938,6 +985,8 @@ async def search_corpus(
     Raises:
         ValueError: If query is empty or documents is empty.
     """
+    import asyncio
+
     from kaos_nlp_core.retrieval.protocol import RetrievalResult as _RetrievalResult
 
     if not query or not query.strip():
@@ -950,7 +999,7 @@ async def search_corpus(
     # Normalize to list of (uri, SearchableDocument) pairs
     indexed_docs: list[tuple[str, Any]] = []
     if isinstance(documents, dict):
-        # Build temporary SearchableDocuments from plain text
+        # Build temporary SearchableDocuments from plain text.
         from kaos_content.builders import DocumentBuilder
         from kaos_content.indexing import SearchableDocument as _SearchableDocument
         from kaos_content.model.attr import SourceRef
@@ -968,7 +1017,7 @@ async def search_corpus(
                     ),
                 }
             )
-            sdoc = _SearchableDocument(doc, level=level, retrieval=retrieval)
+            sdoc = _SearchableDocument(doc, level=level, retrieval=retrieval, model_id=model_id)
             indexed_docs.append((uri, sdoc))
     else:
         for sdoc in documents:
@@ -976,12 +1025,19 @@ async def search_corpus(
             uri = source.uri if source is not None else f"doc:{id(sdoc)}"
             indexed_docs.append((uri, sdoc))
 
-    # Search each document and collect results with provenance
+    # Search each document concurrently. The Rust ort backend in
+    # kaos-nlp-transformers releases the GIL during ``embed()`` (KNT-601
+    # / KNT-602) so a thread-pool offload genuinely parallelizes the
+    # embedding work rather than serializing on the event loop.
+    def _run_one(sdoc: Any) -> SearchResults:
+        return sdoc.search(query, top_k=top_k, preview_length=0, rerank_top_k=rerank_top_k)
+
+    per_doc = await asyncio.gather(
+        *(asyncio.to_thread(_run_one, sdoc) for _uri, sdoc in indexed_docs)
+    )
+
     all_results: list[_RetrievalResult] = []
-    for uri, sdoc in indexed_docs:
-        search_results = sdoc.search(
-            query, top_k=top_k, preview_length=0, rerank_top_k=rerank_top_k
-        )
+    for (uri, sdoc), search_results in zip(indexed_docs, per_doc, strict=True):
         for sr in search_results.results:
             passage_uri = _searchable_passage_uri(
                 doc_uri=uri,

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`SearchableDocument(model_id=...)`, `search_document(..., model_id=...)`,
+  `search_corpus(..., model_id=...)`.** The HF Hub embedding model is now
+  selectable per call and per index. ``None`` selects the
+  ``kaos-nlp-transformers`` default
+  (``KaosNLPTransformersSettings.default_model``). The cached embedding
+  matrix on a ``SearchableDocument`` is implicitly keyed on this value
+  — construct a new instance to switch models. Addresses KNT-601
+  consumer-audit findings H-1 / H-2: the embedding model is no longer
+  hard-coded behind ``EmbeddingModel.load()`` with no arguments.
+- **Process-level ``EmbeddingModel`` cache.** ``kaos_content.search``
+  now memoizes ``EmbeddingModel.load(model_id=...)`` via an
+  ``lru_cache(maxsize=4)``; previously a single hybrid query loaded
+  the model four times (audit finding H-3).
+
+### Changed
+
+- **`search_corpus` runs per-document searches concurrently.** Each
+  ``SearchableDocument.search`` now executes inside ``asyncio.to_thread``
+  and the futures are awaited via ``asyncio.gather``. Previously the
+  function was ``async def`` but contained no ``await``s — the entire
+  BM25 + embedding workload ran on the event loop thread. Combined with
+  KNT-601's GIL-releasing Rust embed path, this makes per-document
+  embed truly parallel. (Audit finding M-1.)
+- **`_embed_texts` now accepts ``Iterable[str]``** instead of strictly
+  ``list[str]``; matches the upstream ``EmbeddingModel.embed`` signature
+  introduced in kaos-nlp-transformers 0.2.0.
+
 ## [0.1.0a2] — 2026-05-07
 
 ### Security
