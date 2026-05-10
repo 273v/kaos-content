@@ -664,7 +664,13 @@ def _embed_texts(texts: Iterable[str], *, model_id: str | None = None) -> Any:
     text_list = list(texts)
     model = _get_embedding_model(model_id)
     if not text_list:
-        return np.zeros((0, model.dim), dtype=np.float32)
+        # Empty input — return a (0, dim) array. Use getattr so a future
+        # attribute rename in kaos-nlp-transformers (`dim` → `dimension`,
+        # `embed_dim`, ...) doesn't crash this call site; the caller
+        # short-circuits on empty records anyway, so a (0, 0) shape is
+        # fine if the dim probe ever fails.
+        dim = int(getattr(model, "dim", 0) or 0)
+        return np.zeros((0, dim), dtype=np.float32)
     vecs = model.embed(text_list)
     norms = np.linalg.norm(vecs, axis=1, keepdims=True)
     norms = np.where(norms == 0, 1.0, norms)
@@ -672,15 +678,12 @@ def _embed_texts(texts: Iterable[str], *, model_id: str | None = None) -> Any:
 
 
 def _embed_query(query: str, *, model_id: str | None = None) -> Any:
-    """Return an L2-normalized (dim,) numpy vector for ``query``."""
-    import numpy as np
+    """Return an L2-normalized (dim,) numpy vector for ``query``.
 
-    model = _get_embedding_model(model_id)
-    q = model.embed([query])[0]
-    n = float(np.linalg.norm(q))
-    if n > 0:
-        q = q / n
-    return q.astype(np.float32)
+    Single-vector front to :func:`_embed_texts` so the normalization
+    (and zero-norm guard, and dtype coercion) only lives in one place.
+    """
+    return _embed_texts([query], model_id=model_id)[0]
 
 
 def _search_embeddings(

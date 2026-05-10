@@ -45,7 +45,8 @@ specific capabilities:
 | `[duckdb]` | `duckdb>=1.0` | DuckDB SQL bridge for tabular |
 | `[nlp]` | `kaos-nlp-core` | BM25 search + sentence-level units + `fuzzy_binary` / `minhash` dedup levels |
 | `[mcp]` | `kaos-mcp` | MCP tool registration |
-| `[dedup-perceptual]` | `imagehash` | Perceptual page-image dedup (`PerceptualHashLevel`). For semantic embedding clustering, install `kaos-nlp-transformers` — it registers `SemanticDedupLevel` against this package's `DedupLevel` protocol. |
+| `[transformers]` | `kaos-nlp-transformers>=0.2.0a2` | Dense embedding + cross-encoder retrieval (`SearchableDocument(retrieval='embeddings'|'hybrid')`, `SearchableCorpus`, token-aware `SectionChunker(max_tokens=...)`). Pure-Rust backend under the hood — `libonnxruntime` is statically linked into the cdylib, so no Python `onnxruntime` install. |
+| `[dedup-perceptual]` | `imagehash` | Perceptual page-image dedup (`PerceptualHashLevel`). For semantic embedding clustering, install `kaos-content[transformers]` (or `kaos-nlp-transformers` directly) — it registers `SemanticDedupLevel` against this package's `DedupLevel` protocol. |
 
 ## Quick start
 
@@ -184,7 +185,7 @@ inline at the call site (`MAX_IMAGE_PIXELS`, `DEFAULT_LOAD_IMAGE_MAX_BYTES`,
 | [`kaos-llm-client`](https://github.com/273v/kaos-llm-client) | LLM | Multi-provider LLM transport |
 | [`kaos-llm-core`](https://github.com/273v/kaos-llm-core) | LLM | Typed LLM programming (Signatures, Programs, Optimizers) |
 | [`kaos-nlp-core`](https://github.com/273v/kaos-nlp-core) | Primitives (Rust) | High-performance NLP primitives |
-| [`kaos-nlp-transformers`](https://github.com/273v/kaos-nlp-transformers) | ML | Dense embeddings + retrieval |
+| [`kaos-nlp-transformers`](https://github.com/273v/kaos-nlp-transformers) | ML (Rust) | Dense embeddings + cross-encoder reranking via Rust `ort` cdylib (libonnxruntime statically linked) |
 | [`kaos-graph`](https://github.com/273v/kaos-graph) | Primitives (Rust) | Graph algorithms + RDF/SPARQL |
 | [`kaos-ml-core`](https://github.com/273v/kaos-ml-core) | Primitives (Rust) | Classical ML on the document AST |
 | [`kaos-citations`](https://github.com/273v/kaos-citations) | Legal | Legal citation extraction, resolution, verification |
