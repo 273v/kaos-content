@@ -84,43 +84,60 @@ jobs:
 
   # ────────────── test ──────────────
   test:
-    name: Test (Python ${{ matrix.python-version }})
-    runs-on: kaos-x64-16core
+    name: Test (${{ matrix.display-os }} / Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     # Stable Python minors install in <2 min from cached wheels;
     # 25 min is generous headroom for source-built wheels on the
     # 3.14t free-threaded matrix entry. Without an explicit timeout,
-    # GHA waits the default 6 hours on a stuck Install step — the
-    # 2026-05-07 run sat 24 min on a transient resolver issue
-    # before we caught it.
+    # GHA waits the default 6 hours on a stuck Install step.
     timeout-minutes: 25
-    # Stable matrix entries gate PRs; experimental entries
-    # (3.14t free-threaded, 3.15-dev pre-release) are informational
-    # only — the matrix `experimental: true` flag flips
-    # `continue-on-error` so CI is not blocked by upstream churn we
-    # cannot fix.
+    # Linux x64 (self-hosted) keeps the 3-Python-version matrix for
+    # fast PR feedback. macOS-arm64 + Windows-x64 each get a single
+    # Python 3.13 leg, gated experimental until proven stable.
+    # Mirrors the cross-OS pattern landed in the kaos-* family
+    # (kaos-core E1, kaos-graph E3, kaos-nlp-core E2, kaos-ml-core,
+    # kaos-nlp-transformers E4).
     strategy:
       fail-fast: false
       matrix:
         include:
+          # ── Linux x64 (self-hosted) — full Python matrix ──
           - python-version: "3.13"
+            os: kaos-x64-16core
+            display-os: linux-x64
             experimental: false
           - python-version: "3.14"
+            os: kaos-x64-16core
+            display-os: linux-x64
             experimental: false
-          # Pre-release of 3.15 (expected GA October 2026). Catches
-          # ecosystem incompatibilities (deferred annotations, removed
-          # APIs) before consumers hit them.
+          # Pre-release of 3.15 (expected GA October 2026).
           - python-version: "3.15"
+            os: kaos-x64-16core
+            display-os: linux-x64
             experimental: true
           # NOTE: 3.14t (free-threaded / PEP 703) is intentionally
-          # NOT in the matrix at v0.1.0a1. Pillow / numpy / polars /
+          # NOT in the matrix at v0.1.0a*. Pillow / numpy / polars /
           # duckdb / lxml don't yet ship Py_GIL_DISABLED wheels for
-          # 3.14t (status is patchy across the scientific stack), so
-          # the 3.14t lane source-builds the entire wheel set on every
-          # run — 25+ min on cold-cache GHA runners, exceeding the
-          # job timeout and stalling Build behind it. Re-add once the
-          # ecosystem ships free-threaded wheels for our extras (likely
-          # late-2026 timeframe).
+          # 3.14t. Re-add once the ecosystem ships free-threaded
+          # wheels for our extras (likely late-2026 timeframe).
+          # ── macOS arm64 — single Python smoke ──
+          - python-version: "3.13"
+            os: macos-14
+            display-os: macos-arm64
+            experimental: true
+          # ── Windows x64 — single Python smoke ──
+          - python-version: "3.13"
+            os: windows-latest
+            display-os: windows-x64
+            experimental: true
     continue-on-error: ${{ matrix.experimental }}
+    env:
+      # PEP 540 UTF-8 Mode + stdout encoding override. Windows cp1252
+      # default codepage crashes on Unicode stdout / file opens
+      # without explicit encoding=. No-op on Linux/macOS. Lessons from
+      # the kaos-* family cross-OS rollout.
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -130,6 +147,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
+          # Per-leg cache key so cross-OS legs don't race.
+          cache-suffix: test-${{ matrix.display-os }}-py${{ matrix.python-version }}
 
       - name: Install Python ${{ matrix.python-version }}
         # `--preview` lets `uv python install` resolve in-development
@@ -138,6 +157,11 @@ jobs:
         run: uv python install --preview ${{ matrix.python-version }}
 
       - name: Install system libraries for source-built C extensions
+        # Linux-only: macOS / Windows runners don't have apt-get; the
+        # source-build paths for Pillow / lxml only kick in on Linux
+        # 3.15 anyway (3.13/3.14 hit cached wheels; macOS+Windows hit
+        # cached wheels for 3.13 too).
+        if: runner.os == 'Linux'
         # Several PyPI deps don't ship pre-built wheels for newer Python
         # minors during their pre-release window; uv falls back to
         # source-build, which needs the corresponding C headers.
@@ -178,8 +202,10 @@ jobs:
             --python ${{ matrix.python-version }}
 
       - name: Run unit tests with coverage
-        # Only unit tests run in regular CI. Integration and fuzz tests
-        # require additional setup and run separately.
+        # `shell: bash` so the multi-line `\` continuations parse on
+        # Windows runners (default PowerShell reads `\` as a unary
+        # operator). Git Bash is preinstalled on `windows-latest`.
+        shell: bash
         run: |
           uv run pytest tests/ \
             -m "not integration and not fuzz" \
@@ -192,7 +218,7 @@ jobs:
         if: always() && !matrix.experimental
         uses: actions/upload-artifact@v7
         with:
-          name: coverage-${{ matrix.python-version }}
+          name: coverage-${{ matrix.display-os }}-py${{ matrix.python-version }}
           path: coverage.xml
           retention-days: 14
 
