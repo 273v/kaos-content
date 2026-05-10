@@ -37,4 +37,3 @@ coverage.xml
 # so committing the lockfile would freeze a no-longer-resolvable view.
 # Re-track this file at 0.1.0a2 once Wave 3 siblings ship. See
 # F009 #4 in the kaos-modules OSS plan / docs/oss/00-overview/decisions.md.
-uv.lock

@@ -37,6 +37,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   receives the full giant URL. No behavior change; the same five
   fixtures still run. Files:
   ``tests/security/test_security_sec1.py``.
+### Changed
+
+- **uv.lock is now tracked in git.** Previously gitignored at v0.1.0a1
+  because the ``[mcp]`` optional extra (and the ``kaos-mcp`` dev
+  dependency) referenced a sibling not yet on PyPI; ``uv lock``
+  couldn't resolve them. ``kaos-mcp`` shipped (0.1.0a2), so the
+  original gating reason no longer applies. Tracking the lockfile
+  gives reproducible local dev environments, lets Dependabot surface
+  sibling-version bumps as PRs, and makes the supply-chain pin set
+  publicly auditable. Mirrors the org-wide convention being adopted
+  across all 16 kaos-* repos.
 
 ## [0.1.0a4] — 2026-05-10
 
