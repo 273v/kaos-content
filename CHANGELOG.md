@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a4] — 2026-05-10
+
 ### Fixed
 
 - **Passage-URI provenance for ``search_corpus(dict[uri, text])``
@@ -29,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fields lagged behind the package version. Test
   ``test_tool_name_matches_pattern`` tightened from
   ``startswith("0.1.0a")`` back to exact equality.
+
+### Documentation
+
+- README extras table refreshed for KNT-602: ``[transformers]`` row
+  now mentions ``SemanticDedupLevel`` as a level that benefits from
+  the embedding step; new ``[clustering]`` row (scipy) covers the
+  clustering step. ``[dedup-perceptual]`` row's parenthetical updated
+  to reflect that ``SemanticDedupLevel`` lives natively in this
+  package now (not registered by an external plugin).
 
 ## [0.1.0a3] — 2026-05-10
 
