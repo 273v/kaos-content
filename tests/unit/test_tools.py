@@ -27,6 +27,7 @@ from kaos_content.model.attr import Provenance, SourceRef
 from kaos_content.model.tabular import Column, ColumnType, Table, TabularDocument
 from kaos_content.tools import (
     ChunkDocumentTool,
+    DedupSemanticTool,
     ExtractPageTool,
     ExtractSectionTool,
     ParseMarkdownTool,
@@ -48,6 +49,7 @@ TOOL_CLASSES: list[type[KaosTool]] = [
     SearchTableTool,
     ExtractSectionTool,
     ExtractPageTool,
+    DedupSemanticTool,
 ]
 
 # Tools that materialise new VFS artifacts on every successful call.
@@ -62,9 +64,20 @@ ARTIFACT_WRITER_TOOLS: list[type[KaosTool]] = [
 ]
 
 # Tools that only read from the VFS — safe to mark read-only/idempotent.
+# DedupSemanticTool sits here even though it doesn't touch the VFS at
+# all — its `_QUERY_ANNOTATIONS` profile (read-only / idempotent) is
+# correct for a compute-over-inputs tool.
 QUERY_TOOLS: list[type[KaosTool]] = [
     SearchDocumentTool,
     SearchTableTool,
+    DedupSemanticTool,
+]
+
+# Tools that DON'T need a runtime context (they accept context=None and
+# operate entirely over their inputs). The TestNoContext suite below
+# parametrizes against TOOL_CLASSES minus this set.
+NO_CONTEXT_TOOLS: list[type[KaosTool]] = [
+    DedupSemanticTool,
 ]
 
 
@@ -199,8 +212,10 @@ class TestToolMetadata:
         meta = tool.metadata
         assert meta.name.startswith("kaos-content-"), f"{meta.name} must start with 'kaos-content-'"
         assert meta.module_name == "kaos-content"
-        # Version must track the package version (alpha during 0.1.x).
-        assert meta.version == "0.1.0a1"
+        # Version must track the kaos-content alpha series (0.1.x).
+        assert meta.version.startswith("0.1.0a"), (
+            f"{meta.name} version {meta.version!r} must track 0.1.0a series"
+        )
 
     @pytest.mark.parametrize("tool_cls", TOOL_CLASSES)
     def test_annotations_are_set(self, tool_cls: type[KaosTool]) -> None:
@@ -251,8 +266,9 @@ class TestRegistration:
     def test_register_content_tools_count(self, tmp_path: Path) -> None:
         runtime = _make_runtime(tmp_path)
         count = register_content_tools(runtime)
-        # 7 original + 1 new (ContextWindowTool, P12).
-        assert count == 8
+        # 7 original + ContextWindowTool (P12) + DedupSemanticTool
+        # (KNT-602 0.1.0a3 — moved from kaos-nlp-transformers).
+        assert count == 9
 
     def test_register_content_tools_listed(self, tmp_path: Path) -> None:
         runtime = _make_runtime(tmp_path)
@@ -267,6 +283,7 @@ class TestRegistration:
             "kaos-content-extract-section",
             "kaos-content-extract-page",
             "kaos-content-context-window",
+            "kaos-content-dedup-semantic",
         }
         assert expected.issubset(set(names))
 
@@ -276,17 +293,22 @@ class TestRegistration:
 # ---------------------------------------------------------------------------
 
 
+_CONTEXT_REQUIRED_TOOLS: list[type[KaosTool]] = [
+    cls for cls in TOOL_CLASSES if cls not in NO_CONTEXT_TOOLS
+]
+
+
 class TestNoContext:
     """All tools needing runtime should return a helpful error with no context."""
 
-    @pytest.mark.parametrize("tool_cls", TOOL_CLASSES)
+    @pytest.mark.parametrize("tool_cls", _CONTEXT_REQUIRED_TOOLS)
     async def test_no_context_returns_error(self, tool_cls: type[KaosTool]) -> None:
         tool = tool_cls()
         result = await tool.execute({}, context=None)
         assert result.isError
         assert "runtime" in (result.text or "").lower()
 
-    @pytest.mark.parametrize("tool_cls", TOOL_CLASSES)
+    @pytest.mark.parametrize("tool_cls", _CONTEXT_REQUIRED_TOOLS)
     async def test_no_runtime_on_context_returns_error(self, tool_cls: type[KaosTool]) -> None:
         tool = tool_cls()
         ctx = KaosContext.create(session_id="test", runtime=None)
@@ -837,3 +859,112 @@ class TestContextWindowTool:
         # window is small enough that it didn't cross — both valid.
         data = result.require_structured()
         assert "expanded_to_section" in data
+
+
+# ---------------------------------------------------------------------------
+# DedupSemanticTool (KNT-602 Option A — moved from kaos-nlp-transformers
+# in 0.1.0a3). Mirrors the test shapes that lived in
+# kaos-nlp-transformers/tests/unit/test_tools.py before the move.
+# ---------------------------------------------------------------------------
+
+
+class TestDedupSemanticTool:
+    """Input-validation + oversized-input + happy-path coverage.
+
+    The tool runs without runtime context — see DedupSemanticTool.execute
+    — so we don't pass one in. The happy-path test is gated on `live`
+    because it loads the real BAAI/bge-small-en-v1.5 model.
+    """
+
+    @staticmethod
+    def _get_tool(tmp_path: Path) -> KaosTool:
+        from kaos_content.tools import DedupSemanticTool
+
+        runtime = _make_runtime(tmp_path)
+        register_content_tools(runtime)
+        tool = runtime.tools.get_tool("kaos-content-dedup-semantic")
+        assert tool is not None, "DedupSemanticTool must register"
+        # Sanity check that we got the right class — register_content_tools
+        # may shuffle ordering in future and a wrong class would silently
+        # invalidate the rest of the suite.
+        assert isinstance(tool, DedupSemanticTool)
+        return tool
+
+    async def test_requires_two_documents(self, tmp_path: Path) -> None:
+        tool = self._get_tool(tmp_path)
+        result = await tool.execute(
+            {"documents": [{"doc_id": "a", "text": "x"}]},
+            None,
+        )
+        assert result.isError
+        assert "at least 2 entries" in (result.text or "")
+
+    async def test_rejects_non_string_doc_id(self, tmp_path: Path) -> None:
+        tool = self._get_tool(tmp_path)
+        result = await tool.execute(
+            {
+                "documents": [
+                    {"doc_id": 1, "text": "x"},
+                    {"doc_id": 2, "text": "y"},
+                ]
+            },
+            None,
+        )
+        assert result.isError
+        assert "string `doc_id` and `text`" in (result.text or "")
+
+    async def test_rejects_non_dict_item(self, tmp_path: Path) -> None:
+        tool = self._get_tool(tmp_path)
+        result = await tool.execute(
+            {
+                "documents": [
+                    "not-a-dict",
+                    {"doc_id": "a", "text": "x"},
+                ]
+            },
+            None,
+        )
+        assert result.isError
+        assert "is not an object" in (result.text or "")
+
+    async def test_rejects_oversized_input(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Lower the cap so the test stays cheap.
+        monkeypatch.setattr("kaos_content.tools._MAX_DEDUP_DOCS", 3)
+        tool = self._get_tool(tmp_path)
+        docs = [{"doc_id": str(i), "text": "x"} for i in range(4)]
+        result = await tool.execute({"documents": docs}, None)
+        assert result.isError
+        assert "Too many documents" in (result.text or "")
+
+    @pytest.mark.live
+    async def test_happy_path(self, tmp_path: Path) -> None:
+        """Live test — needs scipy + the real bge-small embedding model.
+
+        Gated on `live` because the first run downloads ~30 MB and
+        loads libonnxruntime through the cdylib.
+        """
+        pytest.importorskip("scipy")
+        pytest.importorskip("kaos_nlp_transformers")
+
+        tool = self._get_tool(tmp_path)
+        result = await tool.execute(
+            {
+                "documents": [
+                    {"doc_id": "a", "text": "Force majeure clauses excuse performance."},
+                    {"doc_id": "b", "text": "Force majeure provisions excuse performance."},
+                    {"doc_id": "c", "text": "Indemnity caps the liability of the seller."},
+                ],
+                "distance_threshold": 0.15,
+            },
+            None,
+        )
+        assert not result.isError, result.text
+        payload = result.structuredContent
+        assert payload is not None
+        # The two paraphrases must land in the same cluster; the third stays alone.
+        assert len(payload["clusters"]) == 1
+        cluster = payload["clusters"][0]
+        assert set(cluster["member_doc_ids"]) == {"a", "b"}
+        assert 0.0 <= cluster["similarity"] <= 1.0

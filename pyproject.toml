@@ -80,6 +80,13 @@ duckdb = ["duckdb>=1.1.1"]
 # floor that ships the Iterable[str] embed signature, max_seq_len /
 # count_tokens, and the gil_used = false cdylib.
 transformers = ["kaos-nlp-transformers>=0.2.0a2,<0.3"]
+# Hierarchical agglomerative clustering on cosine distance, used by
+# SemanticDedupLevel (KNT-602 Option A — moved here from
+# kaos-nlp-transformers in 0.1.0a3). Pair with [transformers] to
+# actually run the level — both extras are required at find_clusters
+# time. Without them, COMPREHENSIVE / OCR_AWARE presets gracefully
+# degrade to lexical-only.
+clustering = ["scipy>=1.14.1"]
 # Perceptual page-image dedup (PerceptualHashLevel). Pure-Python
 # imagehash (BSD-2) on rendered KaosImage pages — no model, no ONNX.
 # Semantic clustering lives in kaos-nlp-transformers, which registers
@@ -100,6 +107,7 @@ dedup-perceptual = ["imagehash>=4.3.0"]
 dev = [
   "kaos-nlp-core>=0.1.0a1,<0.2",
   "kaos-nlp-transformers>=0.2.0a2,<0.3",
+  "scipy>=1.14.1",
   "Pillow>=12.2.0",
   "numpy>=2.1.0",
   "polars>=1.5.0",
@@ -166,6 +174,7 @@ markers = [
   "integration: end-to-end behavior checks",
   "unit: focused unit checks",
   "fuzz: Hypothesis property-based and pathological-input tests",
+  "live: requires live network access / real model downloads (HuggingFace, etc.)",
 ]
 
 [tool.check-manifest]

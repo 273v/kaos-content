@@ -7,8 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a3] — 2026-05-10
+
 ### Added
 
+- **`kaos_content.dedup.levels.semantic.SemanticDedupLevel`** — moved
+  here from ``kaos_nlp_transformers.clustering`` (KNT-602 Option A).
+  kaos-content owns the AST-grounded integration; kaos-nlp-transformers
+  goes back to being a clean inference primitive with no reverse
+  dependency on this package. Imports of ``EmbeddingModel`` and
+  ``KaosNLPTransformersSettings`` are lazy (inside ``find_clusters``)
+  so the level is constructible without the optional deps. ``find_clusters``
+  raises ``ImportError`` with an actionable install hint pointing at
+  ``kaos-content[transformers]`` / ``kaos-content[clustering]`` when
+  either dep is missing.
+- **MCP tool ``kaos-content-dedup-semantic``** — moved from
+  ``kaos-nlp-transformers-dedup-semantic`` and registered via
+  ``register_content_tools``. The previous tool name is removed in
+  kaos-nlp-transformers 0.2.0a3; downstream agents should switch to
+  the new name.
+- **`[clustering]` extra (`scipy>=1.14.1`)** — orthogonal to
+  ``[transformers]``. Pair both extras to actually run
+  ``SemanticDedupLevel``; without them the ``COMPREHENSIVE`` and
+  ``OCR_AWARE`` presets gracefully degrade to lexical-only.
 - **`SearchableDocument(model_id=...)`, `search_document(..., model_id=...)`,
   `search_corpus(..., model_id=...)`.** The HF Hub embedding model is now
   selectable per call and per index. ``None`` selects the

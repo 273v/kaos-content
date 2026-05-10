@@ -7,11 +7,15 @@ Import and pass to :class:`DedupPipeline`::
 
     pipeline = DedupPipeline(STANDARD)
 
-Semantic clustering (``SemanticDedupLevel``) lives in
-``kaos-nlp-transformers``. When that package is installed, the
-``COMPREHENSIVE`` and ``OCR_AWARE`` presets pick it up automatically;
-when it isn't, those presets degrade gracefully to the lexical levels.
-Same plugin shape kaos-content uses for the ``[nlp]`` BM25 path.
+Semantic clustering (``SemanticDedupLevel``) ships in this package
+since 0.1.0a3 (KNT-602 Option A) but its run-time deps —
+``kaos-nlp-transformers`` and ``scipy`` — are gated behind the
+``[transformers]`` and ``[clustering]`` extras. The ``COMPREHENSIVE``
+and ``OCR_AWARE`` presets pick up the semantic level whenever both
+deps are importable; when either is missing, the presets degrade to
+their lexical-only form so :class:`DedupPipeline.run` never crashes
+mid-pipeline on a missing-extra ImportError. Same plugin shape
+kaos-content uses for the ``[nlp]`` BM25 path.
 """
 
 from __future__ import annotations
@@ -20,23 +24,31 @@ from kaos_content.dedup.levels.binary_hash import BinaryHashLevel
 from kaos_content.dedup.levels.fuzzy_binary import FuzzyBinaryLevel
 from kaos_content.dedup.levels.minhash import MinHashLevel
 from kaos_content.dedup.levels.perceptual import PerceptualHashLevel
+from kaos_content.dedup.levels.semantic import SemanticDedupLevel
 from kaos_content.dedup.levels.text_hash import TextHashLevel
 from kaos_content.dedup.pipeline import DedupPipelineConfig
 from kaos_content.dedup.types import DedupLevel
 
-_SEMANTIC: DedupLevel | None
-try:
-    # Resolves whenever kaos-nlp-transformers is installed
-    # (kaos-content[transformers] or direct install). Guarded by
-    # try/except so the deduplication presets stay usable lexically
-    # without the optional dep.
-    from kaos_nlp_transformers.clustering import (  # type: ignore[import-not-found]
-        SemanticDedupLevel,
-    )
 
-    _SEMANTIC = SemanticDedupLevel(distance_threshold=0.10)
-except ImportError:
-    _SEMANTIC = None
+def _semantic_available() -> bool:
+    """True if the optional deps for SemanticDedupLevel are importable.
+
+    Checks ``kaos-nlp-transformers`` (the embedding model) AND ``scipy``
+    (the clustering algorithm) — both are required at ``find_clusters``
+    time. Module-import time check so the preset's level-list reflects
+    actual capability.
+    """
+    try:
+        import kaos_nlp_transformers  # noqa: F401  # type: ignore[import-not-found]
+        import scipy  # noqa: F401  # type: ignore[import-not-found]
+    except ImportError:
+        return False
+    return True
+
+
+_SEMANTIC: SemanticDedupLevel | None = (
+    SemanticDedupLevel(distance_threshold=0.10) if _semantic_available() else None
+)
 
 
 def _maybe_with_semantic(*lexical: DedupLevel) -> tuple[DedupLevel, ...]:
@@ -78,10 +90,10 @@ COMPREHENSIVE = DedupPipelineConfig(
     short_circuit=True,
 )
 """Lexical levels (binary → fuzzy binary → text hash → MinHash with
-13-word shingles) plus semantic embedding clustering when
-``kaos-nlp-transformers`` is installed. Without that package the
-preset degrades to the four lexical levels. Requires the ``[nlp]``
-extra for MinHash."""
+13-word shingles) plus semantic embedding clustering when the
+``[transformers]`` and ``[clustering]`` extras are installed.
+Without them the preset degrades to the four lexical levels.
+Requires the ``[nlp]`` extra for MinHash."""
 
 OCR_AWARE = DedupPipelineConfig(
     levels=_maybe_with_semantic(
@@ -93,8 +105,9 @@ OCR_AWARE = DedupPipelineConfig(
 )
 """For corpora with scanned PDFs. Binary → perceptual page hash →
 MinHash (low threshold for OCR-noisy text), plus semantic embedding
-clustering when ``kaos-nlp-transformers`` is installed. Requires the
-``[nlp]`` and ``[dedup-perceptual]`` extras."""
+clustering when the ``[transformers]`` and ``[clustering]`` extras
+are installed. Requires the ``[nlp]`` and ``[dedup-perceptual]``
+extras for the lexical / image levels."""
 
 LEGAL = DedupPipelineConfig(
     levels=(

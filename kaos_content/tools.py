@@ -32,7 +32,14 @@ from kaos_core.types.results import ToolResult
 
 _MODULE = "kaos-content"
 # Keep in lockstep with [project.version] in pyproject.toml.
-_VERSION = "0.1.0a1"
+_VERSION = "0.1.0a3"
+
+# Hard cap on documents per kaos-content-dedup-semantic call. The MCP
+# tool runs synchronously (with one asyncio.to_thread offload) and a
+# misbehaving caller could otherwise embed millions of texts in one
+# request. 5_000 is the same cap kaos-nlp-transformers used for the
+# pre-KNT-602 version of this tool.
+_MAX_DEDUP_DOCS: int = 5000
 
 # Search and inspection tools — they read but do not mutate VFS.
 _QUERY_ANNOTATIONS = ToolAnnotations(
@@ -1257,6 +1264,190 @@ def _resolve_body_index(node_ref: str) -> int | None:
 # ---------------------------------------------------------------------------
 
 
+class DedupSemanticTool(KaosTool):
+    """Semantic near-duplicate clustering via embedding cosine distance.
+
+    KNT-602 Option A (kaos-content 0.1.0a3): moved here from
+    kaos-nlp-transformers/tools.py. The previous tool name
+    ``kaos-nlp-transformers-dedup-semantic`` is removed in
+    kaos-nlp-transformers 0.2.0a3; callers should switch to
+    ``kaos-content-dedup-semantic``.
+    """
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-content-dedup-semantic",
+            display_name="Semantic Deduplication",
+            description=(
+                "Cluster documents by embedding cosine distance using "
+                "scipy hierarchical agglomerative clustering. Catches "
+                "paraphrases and template variants that lexical "
+                "dedup misses. Returns clusters with member doc_ids and "
+                "mean intra-cluster similarity. Threshold guidance: "
+                "0.02 = near-exact; 0.10 = same template; 0.20 = same "
+                "topic (broader). Requires the [transformers] and "
+                "[clustering] extras at execute time; missing extras "
+                "surface as a friendly install hint. Hard cap: "
+                f"{_MAX_DEDUP_DOCS} docs per call."
+            ),
+            category=ToolCategory.TEXT,
+            capability=ToolCapability.ANALYZE,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_QUERY_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(
+                    name="documents",
+                    type="array",
+                    description=(
+                        "List of objects with `doc_id` (string) and "
+                        "`text` (string). Empty / whitespace-only texts "
+                        "are skipped."
+                    ),
+                    constraints={"minItems": 2},
+                ),
+                ParameterSchema(
+                    name="distance_threshold",
+                    type="number",
+                    description=(
+                        "Cosine-distance threshold for the cluster cut "
+                        "(default 0.10). Must lie in [0.0, 2.0]."
+                    ),
+                    required=False,
+                    default=0.10,
+                    constraints={"minimum": 0.0, "maximum": 2.0},
+                ),
+                ParameterSchema(
+                    name="max_chars",
+                    type="integer",
+                    description=(
+                        "Truncate documents above this char count before embedding (default 8000)."
+                    ),
+                    required=False,
+                    default=8000,
+                    constraints={"minimum": 1},
+                ),
+                ParameterSchema(
+                    name="model_id",
+                    type="string",
+                    description="Override the embedding model.",
+                    required=False,
+                    default=None,
+                ),
+            ],
+        )
+
+    async def execute(
+        self, inputs: dict[str, Any], context: KaosContext | None = None
+    ) -> ToolResult:
+        import asyncio
+        from typing import cast
+
+        from kaos_content.dedup.levels.semantic import SemanticDedupLevel
+        from kaos_content.dedup.types import DedupDocument
+
+        documents = inputs.get("documents")
+        if not isinstance(documents, list) or len(documents) < 2:
+            return ToolResult.create_error(
+                "Parameter 'documents' is required and must contain at "
+                "least 2 entries. "
+                'Fix: pass `{"documents": [{"doc_id": "a", '
+                '"text": "…"}, …]}`. '
+                "Alternative: with a single doc, dedup is a no-op — "
+                "skip the call."
+            )
+        if len(documents) > _MAX_DEDUP_DOCS:
+            return ToolResult.create_error(
+                f"Too many documents: {len(documents)} (cap {_MAX_DEDUP_DOCS}). "
+                "Fix: split the call into batches. "
+                "Alternative: pre-filter with kaos-content's lexical "
+                "dedup levels (binary hash, MinHash) before semantic dedup."
+            )
+
+        dedup_docs: list[DedupDocument] = []
+        for idx, raw_item in enumerate(documents):
+            if not isinstance(raw_item, dict):
+                return ToolResult.create_error(
+                    f"documents[{idx}] is not an object. "
+                    'Fix: use `{"doc_id": "…", "text": "…"}`. '
+                    "Alternative: wrap raw strings into the object form "
+                    "client-side."
+                )
+            item = cast(dict[str, Any], raw_item)
+            doc_id = item.get("doc_id")
+            text = item.get("text")
+            if not isinstance(doc_id, str) or not isinstance(text, str):
+                return ToolResult.create_error(
+                    f"documents[{idx}] must have string `doc_id` and `text`. "
+                    "Fix: ensure both are strings (cast ints to strings "
+                    "if needed). "
+                    "Alternative: drop the malformed item client-side."
+                )
+            dedup_docs.append(DedupDocument(doc_id=doc_id, text=text))
+
+        # Settings come from runtime context when available; otherwise
+        # the level falls back to the package defaults.
+        settings = None
+        try:
+            from kaos_nlp_transformers.settings import (  # type: ignore[import-not-found]
+                KaosNLPTransformersSettings,
+            )
+
+            settings = KaosNLPTransformersSettings.from_context(context)
+        except ImportError:
+            pass  # Surfaced again with hint via SemanticDedupLevel.find_clusters
+
+        model_id = inputs.get("model_id") or None
+        distance_threshold = float(inputs.get("distance_threshold") or 0.10)
+        max_chars = int(inputs.get("max_chars") or 8000)
+
+        level = SemanticDedupLevel(
+            model_id=model_id,
+            distance_threshold=distance_threshold,
+            max_chars=max_chars,
+            settings=settings,
+        )
+
+        try:
+            clusters = await asyncio.to_thread(level.find_clusters, dedup_docs)
+        except ImportError as exc:
+            # SemanticDedupLevel raises ImportError with the install
+            # hint when scipy or kaos-nlp-transformers is missing — pass
+            # it through verbatim.
+            return ToolResult.create_error(str(exc))
+        except Exception as exc:
+            return ToolResult.create_error(
+                f"Semantic dedup failed: {exc}. "
+                "Fix: confirm the model is loadable and the [transformers] "
+                "and [clustering] extras are installed. "
+                "Alternative: lower the document count or simplify the "
+                "input texts to isolate the failure."
+            )
+
+        payload = {
+            "model_id": model_id,
+            "distance_threshold": distance_threshold,
+            "num_documents": len(dedup_docs),
+            "clusters": [
+                {
+                    "cluster_id": c.cluster_id,
+                    "canonical_doc_id": c.canonical_doc_id,
+                    "member_doc_ids": list(c.member_doc_ids),
+                    "size": len(c.member_doc_ids),
+                    "level": c.level,
+                    "similarity": c.similarity,
+                }
+                for c in clusters
+            ],
+        }
+        n_clustered = sum(len(c.member_doc_ids) for c in clusters)
+        return ToolResult.create_success(
+            payload,
+            summary=(f"{len(clusters)} cluster(s) covering {n_clustered}/{len(dedup_docs)} doc(s)"),
+        )
+
+
 def register_content_tools(runtime: Any) -> int:
     """Register all kaos-content MCP tools with the runtime. Returns count."""
     tools: list[KaosTool] = [
@@ -1268,6 +1459,7 @@ def register_content_tools(runtime: Any) -> int:
         ExtractSectionTool(),
         ExtractPageTool(),
         ContextWindowTool(),
+        DedupSemanticTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)
