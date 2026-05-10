@@ -72,6 +72,14 @@ RetrievalMode = Literal["bm25", "embeddings", "hybrid"]
 # that embedding cost stays bounded (~50 * 1ms ≈ 50ms on bge-small-en-v1.5).
 HYBRID_DEFAULT_CANDIDATE_K = 50
 
+# Sentinel set on ``DocumentMetadata.extra`` for the synthetic
+# single-paragraph documents that ``search_corpus(dict[uri, text])``
+# constructs internally. Lets ``_searchable_passage_uri`` distinguish
+# the synthetic ``#/body/0`` placeholder from a legitimate real
+# one-paragraph document hit. Underscore-prefixed name so it doesn't
+# collide with any caller's metadata keys (KNT-601 audit M-3).
+_SYNTHETIC_CORPUS_FLAG = "_kaos_synthetic_corpus"
+
 
 @dataclass(frozen=True, slots=True)
 class SearchResult:
@@ -1041,7 +1049,12 @@ async def search_corpus(
     # Normalize to list of (uri, SearchableDocument) pairs
     indexed_docs: list[tuple[str, Any]] = []
     if isinstance(documents, dict):
-        # Build temporary SearchableDocuments from plain text.
+        # Build temporary SearchableDocuments from plain text. Each
+        # synthetic document carries a sentinel in metadata.extra so
+        # ``_searchable_passage_uri`` can distinguish "synthetic
+        # single-block" from "legitimate first-paragraph hit" — both
+        # produce ``block_ref == "#/body/0"`` but should derive
+        # different passage URIs (KNT-601 consumer-audit M-3).
         from kaos_content.builders import DocumentBuilder
         from kaos_content.indexing import SearchableDocument as _SearchableDocument
         from kaos_content.model.attr import SourceRef
@@ -1056,6 +1069,7 @@ async def search_corpus(
                 update={
                     "metadata": DocumentMetadata(
                         source=SourceRef(uri=uri),
+                        extra={_SYNTHETIC_CORPUS_FLAG: True},
                     ),
                 }
             )
@@ -1080,6 +1094,11 @@ async def search_corpus(
 
     all_results: list[_RetrievalResult] = []
     for (uri, sdoc), search_results in zip(indexed_docs, per_doc, strict=True):
+        is_synthetic = bool(
+            sdoc.document.metadata.extra.get(_SYNTHETIC_CORPUS_FLAG, False)
+            if sdoc.document.metadata is not None
+            else False
+        )
         for sr in search_results.results:
             passage_uri = _searchable_passage_uri(
                 doc_uri=uri,
@@ -1087,6 +1106,7 @@ async def search_corpus(
                 block_ref=sr.block_ref,
                 char_start=sr.char_start,
                 level=sdoc.level,
+                is_synthetic=is_synthetic,
             )
             all_results.append(
                 _RetrievalResult(
@@ -1118,11 +1138,31 @@ def _searchable_passage_uri(
     block_ref: str | None,
     char_start: int | None = None,
     level: str | None = None,
+    is_synthetic: bool = False,
 ) -> str:
-    """Build a stable passage URI for SearchableDocument corpus search."""
+    """Build a stable passage URI for SearchableDocument corpus search.
+
+    Args:
+        doc_uri: The document URI (corpus-wide identifier).
+        text: The matching passage text — used for the hash fallback.
+        block_ref: The AST block reference, e.g. ``"#/body/5"``.
+        char_start: Character offset within the block (sentence-level
+            results only).
+        level: ``"paragraph"`` or ``"sentence"`` — chooses which path
+            takes precedence.
+        is_synthetic: ``True`` when the document was synthesized from
+            a plain-string ``search_corpus`` dict-mode call. Synthetic
+            docs carry only a single ``#/body/0`` block_ref that does
+            not point at meaningful AST structure, so we skip the
+            block-ref-derived URI and fall back to char_start / hash.
+            Real one-paragraph documents (also ``#/body/0``) get the
+            block-ref URI as expected. KNT-601 audit M-3.
+    """
     if level == "sentence" and char_start is not None:
         return f"{doc_uri}#c{char_start}"
-    if block_ref and block_ref != "#/body/0" and "#" not in doc_uri:
+    # Synthetic corpus docs always have block_ref="#/body/0"; treat it
+    # as a placeholder rather than an AST address.
+    if not is_synthetic and block_ref and "#" not in doc_uri:
         return f"{doc_uri}{block_ref}"
     if char_start is not None:
         return f"{doc_uri}#c{char_start}"

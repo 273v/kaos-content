@@ -306,6 +306,68 @@ class TestSearchableDocumentEmpty:
         assert results.results == []
 
 
+# ─── KNT-601 audit M-3: passage_uri provenance for synthetic vs real docs ───
+#
+# `search_corpus(dict[uri, text])` constructs synthetic SearchableDocuments
+# from plain strings via `DocumentBuilder().paragraph(text)`. Those docs
+# always have block_ref="#/body/0" — the same value a *real* one-paragraph
+# document also produces. The `_kaos_synthetic_corpus` sentinel on
+# `metadata.extra` lets `_searchable_passage_uri` tell them apart so a
+# real doc keeps its block-ref-derived URI while a synthetic doc falls
+# back to the char_start / hash form.
+
+
+@pytest.mark.skipif(not _has_nlp, reason="kaos-nlp-core not installed")
+class TestPassageUriSyntheticFlag:
+    async def test_dict_mode_corpus_uses_hash_fallback(self) -> None:
+        """search_corpus({uri: text}) hits should NOT carry a #/body/0
+        passage_uri — they're synthetic single-paragraph wrappers, not
+        AST addresses."""
+        from kaos_content.search import search_corpus
+
+        results = await search_corpus(
+            {"contract.txt": "The seller hereby grants an exclusive license to the buyer."},
+            "exclusive license",
+            top_k=2,
+        )
+        assert results
+        passage_uri = results[0].metadata["passage_uri"]
+        # Synthetic docs fall through to the hash fallback (paragraph
+        # level has no char_start).
+        assert "#/body/0" not in passage_uri, (
+            f"synthetic dict-mode passage_uri leaked block_ref: {passage_uri!r}"
+        )
+        assert passage_uri.startswith("contract.txt#h"), passage_uri
+
+    async def test_real_one_paragraph_doc_keeps_block_ref(
+        self,
+        multi_section_doc: ContentDocument,
+    ) -> None:
+        """A LEGITIMATE one-paragraph SearchableDocument keeps its
+        ``#/body/0`` passage_uri because the block_ref is meaningful."""
+        from kaos_content.indexing import SearchableDocument
+        from kaos_content.model.attr import SourceRef
+        from kaos_content.model.metadata import DocumentMetadata
+        from kaos_content.search import search_corpus
+
+        # Build a single-paragraph document with a real source URI and
+        # NO synthetic-corpus flag. The audit's M-3 hazard was that the
+        # old block_ref != "#/body/0" heuristic conflated this case
+        # with the synthetic-dict path.
+        single_para = ContentDocument(
+            metadata=DocumentMetadata(source=SourceRef(uri="real.pdf")),
+            body=(_para("The buyer shall indemnify the seller for losses.", page=1),),
+        )
+        sdoc = SearchableDocument(single_para, level="paragraph")
+        results = await search_corpus([sdoc], "indemnify", top_k=2)
+        assert results
+        passage_uri = results[0].metadata["passage_uri"]
+        # Real doc's block_ref must round-trip into the URI.
+        assert passage_uri == "real.pdf#/body/0", (
+            f"real one-paragraph doc lost block_ref provenance: {passage_uri!r}"
+        )
+
+
 # ─── KNT-601 P6.2: model_id propagation ─────────────────────────────────────
 #
 # The embedding-backed retrieval modes ("embeddings", "hybrid") accept a

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Passage-URI provenance for ``search_corpus(dict[uri, text])``
+  results.** Synthetic single-paragraph documents constructed by
+  dict-mode ``search_corpus`` now carry a ``_kaos_synthetic_corpus``
+  sentinel on ``DocumentMetadata.extra``; the
+  ``_searchable_passage_uri`` builder reads the flag and falls back
+  to char_start / hash form for synthetic hits while keeping the
+  block_ref-derived URI for legitimate one-paragraph documents.
+  Pre-fix, both paths produced ``block_ref="#/body/0"`` and the
+  heuristic at ``_searchable_passage_uri`` (``block_ref != "#/body/0"``)
+  silently dropped block_ref provenance from real one-paragraph hits.
+  Resolves KNT-601 consumer-audit finding M-3.
+
+### Changed
+
+- ``kaos_content.tools.py``'s ``_VERSION`` constant now reads from
+  ``kaos_content._version.__version__`` rather than being hardcoded.
+  Eliminates the recurring drift where MCP tool metadata ``version``
+  fields lagged behind the package version. Test
+  ``test_tool_name_matches_pattern`` tightened from
+  ``startswith("0.1.0a")`` back to exact equality.
+
 ## [0.1.0a3] — 2026-05-10
 
 ### Breaking changes
