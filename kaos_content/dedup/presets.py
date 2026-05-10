@@ -26,11 +26,11 @@ from kaos_content.dedup.types import DedupLevel
 
 _SEMANTIC: DedupLevel | None
 try:
-    # kaos-nlp-transformers is a Wave 3 sibling — not on PyPI at v0.1.0a1,
-    # so ty can't resolve the import statically. Runtime guarded by the
-    # try/except below; install kaos-nlp-transformers to enable semantic
-    # dedup.
-    from kaos_nlp_transformers.clustering import (  # type: ignore[import-not-found]  # ty: ignore[unresolved-import]
+    # Resolves whenever kaos-nlp-transformers is installed
+    # (kaos-content[transformers] or direct install). Guarded by
+    # try/except so the deduplication presets stay usable lexically
+    # without the optional dep.
+    from kaos_nlp_transformers.clustering import (  # type: ignore[import-not-found]
         SemanticDedupLevel,
     )
 

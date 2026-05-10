@@ -256,13 +256,14 @@ def _ensure_transformers_available() -> None:
     Used by retrieval modes that depend on the dense embedding backend.
     """
     try:
-        import kaos_nlp_transformers  # type: ignore[import-not-found]  # ty: ignore[unresolved-import]  # noqa: F401
+        import kaos_nlp_transformers  # type: ignore[import-not-found]  # noqa: F401
     except ImportError as exc:
         msg = (
             "Embedding-based retrieval requires the optional "
             "'kaos-nlp-transformers' package. "
-            "Fix: `pip install kaos-nlp-transformers>=0.2.0a1` (or "
-            "`uv add kaos-nlp-transformers`). "
+            "Fix: `pip install kaos-content[transformers]` (or "
+            "`uv add kaos-content[transformers]`, or "
+            "`pip install kaos-nlp-transformers>=0.2.0a2` directly). "
             "Alternative: use retrieval='bm25' for lexical-only search "
             "with no extra dependencies."
         )
@@ -286,7 +287,7 @@ def _get_embedding_model(model_id: str | None) -> Any:
     responsible for guarding the import — ``_ensure_transformers_available``
     has already run by the time we get here.
     """
-    from kaos_nlp_transformers import EmbeddingModel  # ty: ignore[unresolved-import]
+    from kaos_nlp_transformers import EmbeddingModel
 
     return EmbeddingModel.load(model_id=model_id) if model_id else EmbeddingModel.load()
 

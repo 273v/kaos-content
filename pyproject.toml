@@ -52,16 +52,15 @@ dependencies = [
 # ("declared but unresolvable until sibling ships") works for
 # `pip install <pkg>[extra]` but `uv lock` rejects the whole project.
 #
-# The [mcp] and [transformers] extras (pointing at kaos-mcp and
-# kaos-nlp-transformers — both Wave 3, both still 404 on PyPI) are
-# therefore STRIPPED at v0.1.0a1 and re-added at v0.1.0a2 once the
-# siblings ship. Source-side lazy imports of those modules survive
-# via try/except + ty: ignore[unresolved-import].
+# Wave 3 sibling status:
+#   - kaos-nlp-transformers — published as 0.2.0a2 on 2026-05-09;
+#     [transformers] re-added below.
+#   - kaos-mcp — still 404 on PyPI; [mcp] still stripped, re-add at
+#     the next sibling-ship cycle.
 #
-# [nlp] DOES resolve today — kaos-nlp-core 0.1.0a1 is on PyPI (Wave 1
-# Layer 0; shipped 2026-05-06). Third-party extras (markdown / html /
-# images / layout / polars / duckdb / dedup-perceptual) all resolve
-# from PyPI directly.
+# [nlp] points at kaos-nlp-core (Layer-0 sibling on PyPI since
+# 2026-05-06). Third-party extras (markdown / html / images / layout /
+# polars / duckdb / dedup-perceptual) all resolve from PyPI directly.
 markdown = ["markdown-it-py[plugins]>=3.0.0"]
 html = ["lxml>=6.1.0"]                          # >=6.1 closes CVE-2026-41066
 # Pillow >=12.2.0 closes CVE-2026-40192. numpy >=2.1.0 is the first
@@ -75,32 +74,32 @@ layout = ["numpy>=2.1.0"]
 nlp = ["kaos-nlp-core>=0.1.0a1,<0.2"]
 polars = ["polars>=1.5.0"]
 duckdb = ["duckdb>=1.1.1"]
+# Dense embeddings + cross-encoder reranking via Rust ort cdylib
+# (KNT-601). Powers SearchableDocument(retrieval='embeddings'|'hybrid'),
+# SearchableCorpus, EmbeddingChunker (max_tokens). 0.2.0a2 is the
+# floor that ships the Iterable[str] embed signature, max_seq_len /
+# count_tokens, and the gil_used = false cdylib.
+transformers = ["kaos-nlp-transformers>=0.2.0a2,<0.3"]
 # Perceptual page-image dedup (PerceptualHashLevel). Pure-Python
 # imagehash (BSD-2) on rendered KaosImage pages — no model, no ONNX.
 # Semantic clustering lives in kaos-nlp-transformers, which registers
-# itself against this package's DedupLevel Protocol; install
-# kaos-nlp-transformers separately to enable it. Lexical levels
-# (binary/text hash, MinHash via [nlp]) work without either extra.
+# itself against this package's DedupLevel Protocol; install via
+# kaos-content[transformers] (or kaos-nlp-transformers directly) to
+# enable it. Lexical levels (binary/text hash, MinHash via [nlp])
+# work without either extra.
 dedup-perceptual = ["imagehash>=4.3.0"]
 
 [dependency-groups]
-# At v0.1.0a1 the dev group does NOT pin kaos-mcp, kaos-nlp-transformers,
-# or kaos-office because they aren't on PyPI yet (Wave 3 / deferred).
-# kaos-nlp-core IS on PyPI (Layer-0 sibling shipped 2026-05-06) and is
-# kept here so the [nlp]-extra code paths (search.py, indexing.py)
-# resolve in lint + test jobs.
-#
-# The integration tests that need the unpublished siblings
-# (tests/integration/test_office_duckdb_e2e.py, the imagehash dedup
-# tests that exercise kaos-nlp-transformers' try-import path) skip
-# cleanly via existing pytest skipif guards or `pytest.importorskip`
-# on the missing module.
-#
-# Re-add at 0.1.0a2 alongside the [mcp] / [transformers] extras.
-# Per F009 lesson #4 — uv lock is strict; declared-but-unpublished
-# extras refuse to resolve, so we strip from dev too.
+# Dev group mirrors every published [extra] so the lint, test, and
+# min-deps lanes cover every code path the package can take. kaos-mcp
+# is still NOT pinned because it's not on PyPI yet (Wave 3 / deferred);
+# add it once the sibling ships. kaos-nlp-transformers is pinned at the
+# 0.2.0a2 floor — the KNT-601 Rust ort cutover that adds Iterable[str]
+# embed, count_tokens / max_seq_len, and the gil_used = false cdylib
+# this repo's chunker / SearchableCorpus rely on.
 dev = [
   "kaos-nlp-core>=0.1.0a1,<0.2",
+  "kaos-nlp-transformers>=0.2.0a2,<0.3",
   "Pillow>=12.2.0",
   "numpy>=2.1.0",
   "polars>=1.5.0",
@@ -211,14 +210,12 @@ known-first-party = ["kaos_content"]
 
 [tool.ty.src]
 include = ["kaos_content", "tests"]
-# These tests exercise integration paths that require unpublished
-# Wave 3 siblings (kaos-office, kaos-nlp-transformers). They skip
-# cleanly at runtime via existing import-time guards / pytest
-# importorskip but ty walks imports statically and can't see the
-# runtime fallback. Re-include at 0.1.0a2 once the siblings ship.
+# kaos-office is still 404 on PyPI; its end-to-end test stays excluded
+# from the static type sweep. The dedup test was excluded for the same
+# reason while kaos-nlp-transformers was unpublished — it now resolves
+# via the dev pin and is back in scope.
 exclude = [
   "tests/integration/test_office_duckdb_e2e.py",
-  "tests/unit/test_dedup.py",
 ]
 
 [tool.uv]
