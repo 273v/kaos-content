@@ -462,22 +462,24 @@ class TestPresets:
         assert "minhash" in level_names
 
     def test_comprehensive_includes_semantic_when_plugin_installed(self) -> None:
-        """COMPREHENSIVE picks up the kaos-nlp-transformers semantic plugin.
+        """COMPREHENSIVE picks up the kaos-nlp-transformers + scipy plugin.
 
-        When kaos-nlp-transformers is installed (always the case in
-        this dev environment, see uv.sources), the preset includes a
-        level named ``"semantic"``. When it isn't, the preset stays at
-        four lexical levels. This guards against typos in the
-        try-import path silently dropping the plugin.
+        After KNT-602 (kaos-content 0.1.0a3), ``SemanticDedupLevel``
+        lives in this package and the preset's ``_maybe_with_semantic``
+        helper checks both ``kaos-nlp-transformers`` AND ``scipy``
+        importability — if either is missing, the preset gracefully
+        degrades to its lexical-only form. The dev environment installs
+        both via ``uv sync --group dev``.
         """
         try:
-            import kaos_nlp_transformers.clustering  # noqa: F401
+            import kaos_nlp_transformers  # noqa: F401  # type: ignore[import-not-found]
+            import scipy  # noqa: F401
         except ImportError:
-            pytest.skip("kaos-nlp-transformers not installed")
+            pytest.skip("kaos-nlp-transformers + scipy required for the semantic plugin")
         level_names = [lvl.name for lvl in COMPREHENSIVE.levels]
         assert "semantic" in level_names, (
             f"expected COMPREHENSIVE to include the semantic plugin level "
-            f"when kaos-nlp-transformers is installed; got {level_names}"
+            f"when kaos-nlp-transformers and scipy are installed; got {level_names}"
         )
 
     def test_presets_run_without_error(self) -> None:
