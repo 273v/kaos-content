@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0a3] — 2026-05-10
 
+### Breaking changes
+
+- **MCP tool renamed**: ``kaos-nlp-transformers-dedup-semantic`` →
+  ``kaos-content-dedup-semantic``. **No deprecation cycle.** The
+  pre-1.0 alpha series accepts breaking changes per the cross-monorepo
+  standards (``kaos-modules-auth/docs/oss/20-python-packaging/public-api-discipline.md``);
+  this rename ships under that allowance because (a) it is the natural
+  consequence of the SemanticDedupLevel move (KNT-602 Option A) and
+  fixing the rename in two phases would temporarily expose two tools
+  with identical behavior; (b) downstream consumers of the previous
+  tool name are explicitly enumerated and can be migrated in
+  lockstep with this release. Treat callers of the old name as
+  broken on kaos-nlp-transformers 0.2.0a3+ — the old tool is removed
+  there, not left behind as a deprecation shim. If you depended on
+  the tool name through MCP discovery, update your tool list to the
+  new name when bumping kaos-nlp-transformers to 0.2.0a3.
+
 ### Added
 
 - **`kaos_content.dedup.levels.semantic.SemanticDedupLevel`** — moved
@@ -21,11 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   raises ``ImportError`` with an actionable install hint pointing at
   ``kaos-content[transformers]`` / ``kaos-content[clustering]`` when
   either dep is missing.
-- **MCP tool ``kaos-content-dedup-semantic``** — moved from
-  ``kaos-nlp-transformers-dedup-semantic`` and registered via
-  ``register_content_tools``. The previous tool name is removed in
-  kaos-nlp-transformers 0.2.0a3; downstream agents should switch to
-  the new name.
+- **MCP tool ``kaos-content-dedup-semantic``** — registered via
+  ``register_content_tools``. Replaces the breaking-renamed
+  ``kaos-nlp-transformers-dedup-semantic`` (see Breaking changes
+  above).
 - **`[clustering]` extra (`scipy>=1.14.1`)** — orthogonal to
   ``[transformers]``. Pair both extras to actually run
   ``SemanticDedupLevel``; without them the ``COMPREHENSIVE`` and
