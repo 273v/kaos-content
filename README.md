@@ -45,8 +45,9 @@ specific capabilities:
 | `[duckdb]` | `duckdb>=1.0` | DuckDB SQL bridge for tabular |
 | `[nlp]` | `kaos-nlp-core` | BM25 search + sentence-level units + `fuzzy_binary` / `minhash` dedup levels |
 | `[mcp]` | `kaos-mcp` | MCP tool registration |
-| `[transformers]` | `kaos-nlp-transformers>=0.2.0a2` | Dense embedding + cross-encoder retrieval (`SearchableDocument(retrieval='embeddings'|'hybrid')`, `SearchableCorpus`, token-aware `SectionChunker(max_tokens=...)`). Pure-Rust backend under the hood — `libonnxruntime` is statically linked into the cdylib, so no Python `onnxruntime` install. |
-| `[dedup-perceptual]` | `imagehash` | Perceptual page-image dedup (`PerceptualHashLevel`). For semantic embedding clustering, install `kaos-content[transformers]` (or `kaos-nlp-transformers` directly) — it registers `SemanticDedupLevel` against this package's `DedupLevel` protocol. |
+| `[transformers]` | `kaos-nlp-transformers>=0.2.0a3` | Dense embedding + cross-encoder retrieval (`SearchableDocument(retrieval='embeddings'|'hybrid')`, `SearchableCorpus`, token-aware `SectionChunker(max_tokens=...)`) AND the embedding step of `SemanticDedupLevel`. Pure-Rust backend under the hood — `libonnxruntime` is statically linked into the cdylib, so no Python `onnxruntime` install. |
+| `[clustering]` | `scipy>=1.14.1` | The clustering step of `SemanticDedupLevel` (hierarchical agglomerative on cosine distance). Pair with `[transformers]` to actually run the level — both extras are required at `find_clusters` time. Without them the `COMPREHENSIVE` and `OCR_AWARE` presets gracefully degrade to lexical-only. |
+| `[dedup-perceptual]` | `imagehash` | Perceptual page-image dedup (`PerceptualHashLevel`). For embedding-based semantic dedup, install `kaos-content[transformers,clustering]` to enable `SemanticDedupLevel` (KNT-602 0.1.0a3 — the level lives natively in this package now, no longer registered by an external plugin). |
 
 ## Quick start
 
