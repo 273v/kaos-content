@@ -30,9 +30,13 @@ from kaos_core.types.metadata import ToolMetadata
 from kaos_core.types.parameters import ParameterSchema
 from kaos_core.types.results import ToolResult
 
+# Single-source the version: read from the package's _version module so
+# a release bump (`_version.py`) automatically updates every tool's
+# metadata without a manual edit here. Avoids the pre-KNT-602 pattern
+# where this constant drifted ahead of / behind the package version.
+from kaos_content._version import __version__ as _VERSION
+
 _MODULE = "kaos-content"
-# Keep in lockstep with [project.version] in pyproject.toml.
-_VERSION = "0.1.0a3"
 
 # Hard cap on documents per kaos-content-dedup-semantic call. The MCP
 # tool runs synchronously (with one asyncio.to_thread offload) and a

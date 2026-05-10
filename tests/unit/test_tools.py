@@ -208,13 +208,18 @@ class TestToolMetadata:
 
     @pytest.mark.parametrize("tool_cls", TOOL_CLASSES)
     def test_tool_name_matches_pattern(self, tool_cls: type[KaosTool]) -> None:
+        from kaos_content._version import __version__ as pkg_version
+
         tool = tool_cls()
         meta = tool.metadata
         assert meta.name.startswith("kaos-content-"), f"{meta.name} must start with 'kaos-content-'"
         assert meta.module_name == "kaos-content"
-        # Version must track the kaos-content alpha series (0.1.x).
-        assert meta.version.startswith("0.1.0a"), (
-            f"{meta.name} version {meta.version!r} must track 0.1.0a series"
+        # Tools.py derives _VERSION from kaos_content._version.__version__;
+        # the package's source-of-truth version is `pkg_version`. Pinning
+        # exact equality catches any future drift.
+        assert meta.version == pkg_version, (
+            f"{meta.name} version {meta.version!r} drifted from kaos_content "
+            f"package version {pkg_version!r}"
         )
 
     @pytest.mark.parametrize("tool_cls", TOOL_CLASSES)
