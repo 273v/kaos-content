@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI: Windows ``Install dependencies`` PowerShell parse error.** The
+  Windows-x64 matrix leg was failing immediately at the install step
+  with ``ParserError: Missing expression after unary operator '--'``
+  because the multi-line ``uv sync`` command used ``\`` line
+  continuations but the step lacked ``shell: bash``. The "Run unit
+  tests" step already had ``shell: bash`` for the same reason; aligned
+  the install step. Files: ``.github/workflows/ci.yml``.
+- **CI: Python 3.15 ``scipy`` source-build failed with ``Dependency
+  "OpenBLAS" not found``.** SciPy lands in the dep tree transitively
+  on the 3.15 lane (no cached wheel yet) and its Meson build refuses
+  to proceed without OpenBLAS + LAPACK headers. Added
+  ``libopenblas-dev liblapack-dev gfortran`` to the Linux apt-get
+  install step. The 3.15 lane stays ``experimental: true`` (rpds-py /
+  PyO3 upstream still gates it for other repos) but the build path
+  now reaches further. Files: ``.github/workflows/ci.yml``.
+
 ## [0.1.0a4] — 2026-05-10
 
 ### Fixed
