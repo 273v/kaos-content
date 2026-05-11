@@ -272,8 +272,9 @@ class TestRegistration:
         runtime = _make_runtime(tmp_path)
         count = register_content_tools(runtime)
         # 7 original + ContextWindowTool (P12) + DedupSemanticTool
-        # (KNT-602 0.1.0a3 — moved from kaos-nlp-transformers).
-        assert count == 9
+        # (KNT-602 0.1.0a3 — moved from kaos-nlp-transformers)
+        # + StatsTool (0.1.0a5 — aggregation-gap closer).
+        assert count == 10
 
     def test_register_content_tools_listed(self, tmp_path: Path) -> None:
         runtime = _make_runtime(tmp_path)
@@ -289,6 +290,7 @@ class TestRegistration:
             "kaos-content-extract-page",
             "kaos-content-context-window",
             "kaos-content-dedup-semantic",
+            "kaos-content-stats",
         }
         assert expected.issubset(set(names))
 

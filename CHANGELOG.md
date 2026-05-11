@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **``kaos-content-stats`` MCP tool.** Returns per-document statistical
+  summary: ``char_count``, ``word_count``, ``paragraph_count``,
+  ``heading_count``, ``table_count``, ``image_count``,
+  ``code_block_count``, ``footnote_count``, ``annotation_count``, and
+  ``page_count`` (when provenance carries pages). Closes the
+  aggregation-question gap (longest doc, most tables, etc.) at the
+  kaos-content boundary — callers no longer need to retrieve passages
+  and count manually. Pairs with kaos-agents' corpus-manifest tool
+  which aggregates these stats across a session corpus. Files:
+  ``kaos_content/tools.py``.
+
+### Changed
+
+- **Downgraded annotation-validation WARNING to DEBUG.** The
+  ``NodeIndex._build`` log line ``Document has N annotation target(s)
+  referencing non-existent nodes`` was emitted at ``WARNING`` level
+  on every DOCX load (one entry per body block per doc — ~10 lines
+  per document) and was not actionable for users. These references
+  reflect parser lifecycle quirks where annotations target valid
+  blocks indexed under a different ref shape (e.g. a footnote
+  promoted to a body block) — not real data errors. WARNING noise
+  conditioned users to ignore real warnings. Callers that want a
+  hard error can still call ``validate_annotations()`` directly.
+  Files: ``kaos_content/traversal/index.py``.
+
 ### Fixed
 
 - **CI: Windows ``Install dependencies`` PowerShell parse error.** The

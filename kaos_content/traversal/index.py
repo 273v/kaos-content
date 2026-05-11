@@ -57,10 +57,21 @@ class NodeIndex:
             for target in ann.targets:
                 self._annotation_map.setdefault(target.node_ref, []).append(ann)
 
-        # Validate annotations
+        # Validate annotations.
+        #
+        # Note: many real-world parsers (esp. DOCX) emit annotations whose
+        # ``target.node_ref`` resolves to a body block that's logically valid
+        # but indexed under a different ref shape than the annotation
+        # author expected (e.g. ``#/body/N`` when the annotation was
+        # authored against a footnote that got promoted to a body block).
+        # These are NOT actionable user-facing errors — they're parser
+        # lifecycle quirks. Downgraded from WARNING to DEBUG because the
+        # WARNING stream flooded stderr on every DOCX load and conditioned
+        # users to ignore real warnings. Callers that want a hard error
+        # can still call ``validate_annotations()`` themselves.
         invalid = self.validate_annotations()
         if invalid:
-            logger.warning(
+            logger.debug(
                 "Document has %d annotation target(s) referencing non-existent nodes: %s",
                 len(invalid),
                 invalid[:5],
