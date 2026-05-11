@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a5] — 2026-05-11
+
 ### Added
 
 - **``kaos-content-stats`` MCP tool.** Returns per-document statistical
@@ -410,5 +412,6 @@ First public alpha release.
 This release is the first to ship under the Apache License 2.0.
 Earlier internal versions were proprietary.
 
-[Unreleased]: https://github.com/273v/kaos-content/compare/v0.1.0a1...HEAD
+[Unreleased]: https://github.com/273v/kaos-content/compare/v0.1.0a5...HEAD
+[0.1.0a5]: https://github.com/273v/kaos-content/compare/v0.1.0a4...v0.1.0a5
 [0.1.0a1]: https://github.com/273v/kaos-content/releases/tag/v0.1.0a1
