@@ -19,11 +19,6 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip(
-    "kaos_office",
-    reason="kaos-office is not yet published; live NDA tests require it as a dev dep.",
-)
-
 from kaos_content.model.document import ContentDocument
 from kaos_content.summarize import build_document_summary
 

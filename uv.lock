@@ -354,6 +354,7 @@ dev = [
     { name = "imagehash" },
     { name = "kaos-nlp-core" },
     { name = "kaos-nlp-transformers" },
+    { name = "kaos-office" },
     { name = "lxml" },
     { name = "markdown-it-py", extra = ["plugins"] },
     { name = "numpy" },
@@ -393,6 +394,7 @@ dev = [
     { name = "imagehash", specifier = ">=4.3.0" },
     { name = "kaos-nlp-core", specifier = ">=0.1.0a1,<0.2" },
     { name = "kaos-nlp-transformers", specifier = ">=0.2.0a2,<0.3" },
+    { name = "kaos-office", specifier = ">=0.1.0a2,<0.2" },
     { name = "lxml", specifier = ">=6.1.0" },
     { name = "markdown-it-py", extras = ["plugins"], specifier = ">=3.0.0" },
     { name = "numpy", specifier = ">=2.1.0" },
@@ -452,6 +454,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3d/37/3ce91fb6d8c791b6efaa41a545b328881866b35292dbfe68162e126b7e85/kaos_nlp_transformers-0.2.0a3-cp313-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:85908e09c1bbdacc04ee942d840f100377c5890bfd3422cca0ccd35be57022c9", size = 38524358, upload-time = "2026-05-10T08:42:50.139Z" },
     { url = "https://files.pythonhosted.org/packages/79/20/488609482955bdb297c0c97aa4c2179d6bb1cf0bfa0f76a7d8fee2e72642/kaos_nlp_transformers-0.2.0a3-cp313-abi3-win_amd64.whl", hash = "sha256:0b8cd98618895dee200d10084b0971156264b0bb728834a88c1d04dfb5cb426f", size = 37687218, upload-time = "2026-05-10T08:42:53.957Z" },
     { url = "https://files.pythonhosted.org/packages/7f/e7/48b4975826ce20f0fb4eaa4c85501239de9fca5f9f35fd09790291494bc2/kaos_nlp_transformers-0.2.0a3-cp313-abi3-win_arm64.whl", hash = "sha256:cdc70714af682f92fa3ce669414c7a3ac2282c9becfde83efc0b49b34cef5e08", size = 37217936, upload-time = "2026-05-10T08:42:57.508Z" },
+]
+
+[[package]]
+name = "kaos-office"
+version = "0.1.0a2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "kaos-content", extra = ["markdown"] },
+    { name = "kaos-core" },
+    { name = "lxml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ad/c6/8d937a82b88c27e8f97c3fc94d0caf2fd31fe74d2562b64782a382a20910/kaos_office-0.1.0a2.tar.gz", hash = "sha256:02ec606e53092975307e6a1b79eca6365adb08e36e8904ea445a72d7191ff802", size = 103611, upload-time = "2026-05-08T12:43:04.863Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a1/4f/773dd5af4f970afa9aa2d24aab5f3c61dfd33c29bd92eb16e3148501e550/kaos_office-0.1.0a2-py3-none-any.whl", hash = "sha256:4fe8352f3673b2ade7ec4b813dc7443cef4563d07a2515feff56a5cc96c98f38", size = 116354, upload-time = "2026-05-08T12:43:03.458Z" },
 ]
 
 [[package]]

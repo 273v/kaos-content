@@ -15,11 +15,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
-pytest.importorskip(
-    "kaos_office",
-    reason="kaos-office is not yet published; live NDA tests require it as a dev dep.",
-)
 from kaos_core.base.context import KaosContext
 from kaos_core.registry.container import KaosRuntime
 from kaos_core.types.results import ToolResult
