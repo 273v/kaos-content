@@ -1452,6 +1452,116 @@ class DedupSemanticTool(KaosTool):
         )
 
 
+# ---------------------------------------------------------------------------
+# StatsTool
+# ---------------------------------------------------------------------------
+
+
+class StatsTool(KaosTool):
+    """Per-document statistics — character / word / paragraph / table counts.
+
+    Closes the aggregation-question gap (longest / shortest / largest /
+    most-X) at the kaos-content boundary: produces a stable numerical
+    summary of a single ContentDocument so callers can sort, filter, or
+    compare across documents without re-tokenising the source.
+    """
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-content-stats",
+            display_name="Document Stats",
+            description=(
+                "Compute statistical summary of a stored ContentDocument: "
+                "char_count, word_count, paragraph_count, heading_count, "
+                "table_count, image_count, code_block_count, "
+                "footnote_count, annotation_count, page_count (when "
+                "provenance carries pages). Use for aggregation questions "
+                "(longest doc, most tables, etc.) rather than retrieving "
+                "passages and counting manually."
+            ),
+            category=ToolCategory.DOCUMENT,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_QUERY_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(
+                    name="artifact_id",
+                    type="string",
+                    description="Artifact ID of the stored ContentDocument.",
+                ),
+            ],
+        )
+
+    async def execute(
+        self, inputs: dict[str, Any], context: KaosContext | None = None
+    ) -> ToolResult:
+        if context is None or context.runtime is None:
+            return ToolResult.create_error(_NO_CONTEXT_ERROR)
+
+        artifact_id = inputs.get("artifact_id")
+        if not artifact_id:
+            return ToolResult.create_error(
+                "Missing 'artifact_id'. Provide the ID returned by "
+                "kaos-content-parse-markdown or any reader tool."
+            )
+
+        from kaos_content.artifacts import load_document
+        from kaos_content.model.blocks import Paragraph
+        from kaos_content.serializers.text import serialize_text
+        from kaos_content.traversal import NodeIndex
+
+        try:
+            doc = await load_document(artifact_id, context.runtime)
+        except Exception as exc:
+            return ToolResult.create_error(
+                f"Failed to load artifact {artifact_id!r}: {exc}. "
+                "Verify the artifact exists in the runtime's VFS."
+            )
+
+        text = serialize_text(doc)
+        char_count = len(text)
+        word_count = len(text.split())
+
+        index = NodeIndex(doc)
+        paragraph_count = len(index.by_type(Paragraph))
+        heading_count = len(index.headings)
+        table_count = len(index.tables)
+        image_count = len(index.images)
+        code_block_count = len(index.code_blocks)
+        footnote_count = sum(len(blocks) for blocks in doc.footnotes.values())
+        annotation_count = len(doc.annotations)
+
+        # Page count via provenance — only meaningful when the reader
+        # (e.g. kaos-pdf) emitted provenance.page on its blocks.
+        pages: set[int] = set()
+        for block in doc.body:
+            if block.provenance is not None and block.provenance.page is not None:
+                pages.add(block.provenance.page)
+        page_count = len(pages) if pages else None
+
+        output = {
+            "artifact_id": artifact_id,
+            "char_count": char_count,
+            "word_count": word_count,
+            "paragraph_count": paragraph_count,
+            "heading_count": heading_count,
+            "table_count": table_count,
+            "image_count": image_count,
+            "code_block_count": code_block_count,
+            "footnote_count": footnote_count,
+            "annotation_count": annotation_count,
+            "page_count": page_count,
+        }
+        summary = (
+            f"{char_count:,} chars, {word_count:,} words, "
+            f"{paragraph_count} paragraphs, {heading_count} headings, "
+            f"{table_count} tables" + (f", {page_count} pages" if page_count is not None else "")
+        )
+        return ToolResult.create_success(output=output, summary=summary)
+
+
 def register_content_tools(runtime: Any) -> int:
     """Register all kaos-content MCP tools with the runtime. Returns count."""
     tools: list[KaosTool] = [
@@ -1464,6 +1574,7 @@ def register_content_tools(runtime: Any) -> int:
         ExtractPageTool(),
         ContextWindowTool(),
         DedupSemanticTool(),
+        StatsTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)
