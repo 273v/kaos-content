@@ -24,6 +24,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   install step. The 3.15 lane stays ``experimental: true`` (rpds-py /
   PyO3 upstream still gates it for other repos) but the build path
   now reaches further. Files: ``.github/workflows/ci.yml``.
+- **Tests: ``TestIsSafeUrlMalformed`` parametrize ID overflows
+  Windows env-var cap.** The malformed-URL fuzz fixture includes
+  ``"http://" + "a" * 100000 + ":99999999999999999999"`` (100 000+
+  characters). Pytest writes the full parameter value into
+  ``PYTEST_CURRENT_TEST`` for each parametrized test, and Windows
+  limits a single environment variable to 32 767 characters; on the
+  new Windows-x64 CI leg every URL test in the class collected with
+  ``ValueError: the environment variable is longer than 32767
+  characters``. Switched to ``pytest.param(url, id="...")`` so
+  pytest uses a short ID for the env var while the test body still
+  receives the full giant URL. No behavior change; the same five
+  fixtures still run. Files:
+  ``tests/security/test_security_sec1.py``.
 
 ## [0.1.0a4] — 2026-05-10
 

@@ -36,10 +36,23 @@ class TestIsSafeUrlMalformed:
     @pytest.mark.parametrize(
         "url",
         [
-            "http://[",  # bare IPv6 open bracket — original PoC
-            "https://[::1",  # incomplete IPv6
-            "http://[invalid::ipv6:address",  # malformed IPv6 net-loc
-            "http://" + "a" * 100000 + ":99999999999999999999",  # huge port
+            pytest.param("http://[", id="bare-ipv6-open-bracket"),
+            pytest.param("https://[::1", id="incomplete-ipv6"),
+            pytest.param("http://[invalid::ipv6:address", id="malformed-ipv6-netloc"),
+            # Explicit short ``id`` is critical here: pytest sets the
+            # full param value into the ``PYTEST_CURRENT_TEST`` env var
+            # for each parametrized test, and Windows caps a single env
+            # var at 32 767 characters. Without the id override, the
+            # 100 000-char host name plus the path-prefix overflows
+            # that cap with ``ValueError: the environment variable is
+            # longer than 32767 characters``, and the test fails to
+            # set up on the Windows-x64 CI leg. The id lets pytest
+            # use a short string for the env-var while the test still
+            # receives the full giant URL.
+            pytest.param(
+                "http://" + "a" * 100000 + ":99999999999999999999",
+                id="huge-host-and-port",
+            ),
         ],
     )
     def test_does_not_raise_on_malformed_url(self, url: str) -> None:
