@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from kaos_content.model.annotation import Annotation
 from kaos_content.model.blocks import Block
 from kaos_content.model.metadata import DocumentMetadata, Section
+from kaos_content.model.summary import DocumentSummary
 
 
 class ContentDocument(BaseModel):
@@ -36,3 +37,11 @@ class ContentDocument(BaseModel):
     compat). A multi-section document produces one ``Section`` per
     ``<w:sectPr>`` in order. Each section's ``end_block_index`` is
     exclusive; the last section's value must equal ``len(body)``."""
+
+    summary: DocumentSummary | None = None
+    """Optional cheap, deterministic summary for corpus-scale triage
+    (head tokens + top/bottom n-grams + entity counts). Populated on
+    demand by :func:`kaos_content.summarize.build_document_summary`;
+    ``None`` is the canonical "not yet computed" state and is
+    backward-compatible with serialised documents that predate this
+    field. See ``docs/design/findings-entities-summary.md``."""

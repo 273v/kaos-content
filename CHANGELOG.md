@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a6] — 2026-05-11
+
+### Added
+
+- **``DocumentSummary`` value type + deterministic builder.** Cheap,
+  no-LLM summary attached to ``ContentDocument`` for corpus-scale
+  triage. Fields: ``head_tokens`` (first ~500 tokens verbatim),
+  ``top_ngrams`` (50 most-frequent 1–3-grams after stopword removal),
+  ``bottom_ngrams`` (50 rare-but-recurring n-grams — the distinctive
+  fingerprint), ``char_length``, ``sentence_count``,
+  ``paragraph_count``, ``entity_counts`` (per-type sentence counts),
+  ``schema_version``. Built via ``kaos_content.summarize.build_document_summary``;
+  uses kaos-nlp-core's Rust-backed ``Tokenizer`` and
+  ``FrequencyVocabulary`` for tokenisation + counting (single FFI hop).
+  ``ContentDocument`` gains a ``summary: DocumentSummary | None`` field,
+  default ``None`` for backward compat. (K1; files:
+  ``kaos_content/model/document.py``, ``kaos_content/model/summary.py``,
+  ``kaos_content/summarize/__init__.py``, ``kaos_content/summarize/stopwords.py``.)
+- **Typed-entity sentence/paragraph filter primitives.** Free
+  functions over ``DocumentView`` that yield each sentence/paragraph
+  containing a typed entity match: ``sentences_with_dates`` /
+  ``money`` / ``percents`` / ``durations`` / ``numbers`` (plus
+  paragraph-level counterparts). ``EntityMatch`` carries the typed
+  value (datetime / Decimal / MoneyMatch / DurationMatch) so callers
+  can sort/threshold without re-parsing. ``DocumentView`` gains
+  ``.sentences_with_entity()`` / ``.paragraphs_with_entity()``
+  convenience methods. (K2; files:
+  ``kaos_content/views/entity_filters.py``,
+  ``kaos_content/views/document_view.py``.)
+- **Five entity-filter MCP tools.** ``kaos-content-sentences-with-{dates,
+  money, percents, durations, numbers}`` — read-only, deterministic,
+  zero-LLM. Each takes an artifact id and returns matches with
+  serialised typed values + AST anchors + page/section context.
+  (K3; files: ``kaos_content/tools.py``.)
+- **``kaos-content-corpus-summarize`` MCP tool.** Builds
+  ``DocumentSummary`` for each artifact in a corpus. Skips artifacts
+  whose summary is already populated unless ``force_rebuild=True``.
+  Failed loads are recorded in a ``failed[]`` list rather than
+  aborting the call. (K4; files: ``kaos_content/tools.py``.)
+- **``kaos-content-corpus-narrow`` MCP tool.** BM25-ranks corpus
+  artifacts against a query using their summaries (head + top + bottom
+  n-grams concatenated). Returns top-K with scores, head snippets,
+  and distinguishing n-grams for triage. (K4; files: ``kaos_content/tools.py``.)
+- **``kaos_content.tokens`` token-frequency primitives.**
+  ``document_token_frequency``, ``section_token_frequency``,
+  ``paragraph_token_frequency`` — free functions backed by
+  kaos-nlp-core's Rust ``FrequencyVocabulary`` (single FFI hop;
+  counting in Rust, not Python). Files: ``kaos_content/tokens.py``.
+
+### Changed
+
+- **Frequency counting now lives in Rust, not Python.** Both the K1
+  summary builder's n-gram pass and the K9 token-frequency primitives
+  accumulate counts via ``kaos_nlp_core.structures.FrequencyVocabulary``
+  rather than ``collections.Counter``. Matches the
+  ``feedback_rust_first.md`` convention; no functional change to
+  outputs, only one FFI hop per call instead of per-token. Files:
+  ``kaos_content/summarize/__init__.py``, ``kaos_content/tokens.py``.
+
 ## [0.1.0a5] — 2026-05-11
 
 ### Added

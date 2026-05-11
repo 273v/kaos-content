@@ -190,6 +190,33 @@ class DocumentView:
         """Get sentences for a specific paragraph."""
         return tuple(s for s in self.sentences if s.paragraph_ref == paragraph_ref)
 
+    # ── Typed-entity filters (K2) ──
+    #
+    # Thin wrappers around free functions in
+    # ``kaos_content.views.entity_filters``. The functions hold the
+    # actual logic + value types; these methods exist for ergonomic
+    # discoverability on the view object. See entity_filters.py for
+    # design rationale.
+
+    def sentences_with_entity(self, entity_type: str) -> tuple[Any, ...]:
+        """Filter ``self.sentences`` to those containing >=1 match.
+
+        See :func:`kaos_content.views.entity_filters.iter_sentences_with_entity`.
+        ``entity_type`` must be one of ``ENTITY_TYPES``.
+        """
+        from kaos_content.views.entity_filters import iter_sentences_with_entity
+
+        return tuple(iter_sentences_with_entity(self, entity_type))
+
+    def paragraphs_with_entity(self, entity_type: str) -> tuple[Any, ...]:
+        """Filter ``self.paragraphs`` to those containing >=1 match.
+
+        See :func:`kaos_content.views.entity_filters.iter_paragraphs_with_entity`.
+        """
+        from kaos_content.views.entity_filters import iter_paragraphs_with_entity
+
+        return tuple(iter_paragraphs_with_entity(self, entity_type))
+
     # ── Internal: page computation ──
 
     def _compute_pages(self) -> tuple[PageView, ...]:
