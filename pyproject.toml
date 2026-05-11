@@ -219,12 +219,19 @@ known-first-party = ["kaos_content"]
 
 [tool.ty.src]
 include = ["kaos_content", "tests"]
-# kaos-office is still 404 on PyPI; its end-to-end test stays excluded
+# kaos-office is still 404 on PyPI; its end-to-end tests stay excluded
 # from the static type sweep. The dedup test was excluded for the same
 # reason while kaos-nlp-transformers was unpublished — it now resolves
 # via the dev pin and is back in scope.
 exclude = [
   "tests/integration/test_office_duckdb_e2e.py",
+  # 0.1.0a6 K1/K2/K4 live tests parse real NDA docx files via the
+  # same kaos-office import path that's still unpublished. Skipped
+  # at runtime via pytest.mark.skipif on NDA fixture absence; here
+  # we just need ty to skip them too.
+  "tests/integration/test_summary_real_ndas.py",
+  "tests/integration/test_entity_filters_real_ndas.py",
+  "tests/integration/test_corpus_tools_real_ndas.py",
 ]
 
 [tool.uv]

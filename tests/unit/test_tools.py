@@ -273,8 +273,10 @@ class TestRegistration:
         count = register_content_tools(runtime)
         # 7 original + ContextWindowTool (P12) + DedupSemanticTool
         # (KNT-602 0.1.0a3 — moved from kaos-nlp-transformers)
-        # + StatsTool (0.1.0a5 — aggregation-gap closer).
-        assert count == 10
+        # + StatsTool (0.1.0a5 — aggregation-gap closer)
+        # + 5 typed-entity sentence filters (K3, 0.1.0a6)
+        # + CorpusSummarizeTool + CorpusNarrowTool (K4, 0.1.0a6).
+        assert count == 17
 
     def test_register_content_tools_listed(self, tmp_path: Path) -> None:
         runtime = _make_runtime(tmp_path)

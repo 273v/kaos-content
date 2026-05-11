@@ -1562,6 +1562,620 @@ class StatsTool(KaosTool):
         return ToolResult.create_success(output=output, summary=summary)
 
 
+# ---------------------------------------------------------------------------
+# Typed-entity sentence filters (K3)
+#
+# Five MCP tools — one per supported entity type — that surface the
+# K2 kaos_content.views.entity_filters API to agents. Each tool takes
+# a stored ContentDocument artifact id and returns the sentences (or
+# optionally paragraphs) that contain at least one match of the
+# target entity type, plus the typed match value.
+#
+# Implemented via a single base class parametrised by entity_type so
+# adding a new type later (e.g. "parties" when the NER extractor
+# lands) is one line, not 100.
+# ---------------------------------------------------------------------------
+
+
+class _EntityFilterToolBase(KaosTool):
+    """Shared logic for the five entity-filter tools.
+
+    Each concrete tool sets ``_ENTITY_TYPE`` and ``_DISPLAY_NAME``;
+    everything else (metadata shape, parameter schema, execute body)
+    lives here so the five tools stay in lockstep.
+    """
+
+    _ENTITY_TYPE: str = ""  # subclasses override
+    _DISPLAY_NAME: str = ""  # human-friendly
+    _DESCRIPTION_TAIL: str = ""  # one-line type-specific hint
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name=f"kaos-content-sentences-with-{self._ENTITY_TYPE}",
+            display_name=f"Sentences with {self._DISPLAY_NAME}",
+            description=(
+                f"Return every sentence in a stored ContentDocument that "
+                f"contains at least one {self._DISPLAY_NAME} match. "
+                f"{self._DESCRIPTION_TAIL} "
+                "Deterministic — pure regex + dictionary lookups, zero LLM "
+                "cost. Each match carries the typed extracted value so "
+                "agents can sort, threshold, or compare without re-parsing. "
+                "Pair with kaos-content-stats / kaos-content-summarize for "
+                "corpus-scale triage."
+            ),
+            category=ToolCategory.DOCUMENT,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_QUERY_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(
+                    name="artifact_id",
+                    type="string",
+                    description="Artifact ID of the stored ContentDocument.",
+                ),
+                ParameterSchema(
+                    name="granularity",
+                    type="string",
+                    description=(
+                        "One of 'sentence' (default) or 'paragraph'. "
+                        "Sentence-level returns finer hits; paragraph-level "
+                        "is appropriate when the answer needs more context."
+                    ),
+                    required=False,
+                    default="sentence",
+                ),
+                ParameterSchema(
+                    name="max_results",
+                    type="integer",
+                    description=(
+                        "Cap on number of hits returned. Default 50; use a "
+                        "lower number for triage, higher for diligence."
+                    ),
+                    required=False,
+                    default=50,
+                ),
+            ],
+        )
+
+    async def execute(
+        self, inputs: dict[str, Any], context: KaosContext | None = None
+    ) -> ToolResult:
+        if context is None or context.runtime is None:
+            return ToolResult.create_error(_NO_CONTEXT_ERROR)
+
+        artifact_id = inputs.get("artifact_id")
+        if not artifact_id:
+            return ToolResult.create_error(
+                "Missing 'artifact_id'. Provide the ID returned by "
+                "kaos-content-parse-markdown or any reader tool."
+            )
+
+        granularity = inputs.get("granularity", "sentence")
+        if granularity not in ("sentence", "paragraph"):
+            return ToolResult.create_error(
+                f"Invalid granularity {granularity!r}. Must be 'sentence' or 'paragraph'."
+            )
+        # Use a None-aware default so an explicit 0 from the caller
+        # surfaces as a validation error rather than silently being
+        # replaced by 50 via ``or``.
+        max_results_raw = inputs.get("max_results")
+        max_results = 50 if max_results_raw is None else int(max_results_raw)
+        if max_results < 1:
+            return ToolResult.create_error("'max_results' must be >= 1.")
+
+        from kaos_content.artifacts import load_document
+        from kaos_content.views import DocumentView
+        from kaos_content.views.entity_filters import (
+            iter_paragraphs_with_entity,
+            iter_sentences_with_entity,
+        )
+
+        try:
+            doc = await load_document(artifact_id, context.runtime)
+        except Exception as exc:
+            return ToolResult.create_error(
+                f"Failed to load artifact {artifact_id!r}: {exc}. "
+                "Verify the artifact exists in the runtime's VFS."
+            )
+
+        # Sentence-level needs the segmenter; paragraph-level doesn't.
+        if granularity == "sentence":
+            from kaos_nlp_core._defaults import get_default_punkt_tokenizer
+
+            view = DocumentView(doc, sentence_segmenter=get_default_punkt_tokenizer())
+            hits = list(iter_sentences_with_entity(view, self._ENTITY_TYPE))
+            matches_payload = [
+                {
+                    "block_ref": h.sentence.paragraph_ref,
+                    "page": h.sentence.page,
+                    "section_title": _section_title_for(view, h.sentence.section_ref),
+                    "text": h.sentence.text,
+                    "char_start": h.sentence.start,
+                    "char_end": h.sentence.end,
+                    "entities": [_match_payload(m) for m in h.matches],
+                }
+                for h in hits[:max_results]
+            ]
+        else:
+            view = DocumentView(doc)
+            hits = list(iter_paragraphs_with_entity(view, self._ENTITY_TYPE))
+            matches_payload = [
+                {
+                    "block_ref": h.paragraph.block_ref,
+                    "page": h.paragraph.page,
+                    "section_title": _section_title_for(view, h.paragraph.section_ref),
+                    "text": h.paragraph.text,
+                    "entities": [_match_payload(m) for m in h.matches],
+                }
+                for h in hits[:max_results]
+            ]
+
+        total = len(hits)
+        has_more = total > max_results
+        output = {
+            "artifact_id": artifact_id,
+            "entity_type": self._ENTITY_TYPE,
+            "granularity": granularity,
+            "matches": matches_payload,
+            "total_matches": total,
+            "has_more": has_more,
+        }
+        summary = (
+            f"Found {total} {granularity}(s) with {self._DISPLAY_NAME} "
+            f"in artifact {artifact_id}" + (f" (showing first {max_results})" if has_more else "")
+        )
+        return ToolResult.create_success(output=output, summary=summary)
+
+
+def _section_title_for(view: Any, section_ref: str | None) -> str | None:
+    """Resolve a section_ref to its heading text, or None."""
+    if section_ref is None:
+        return None
+    sec = view.section_by_ref(section_ref)
+    return sec.heading_text if sec is not None else None
+
+
+def _match_payload(match: Any) -> dict[str, Any]:
+    """Convert an EntityMatch to a JSON-friendly dict."""
+    # Avoid leaking domain objects (Decimal, datetime, MoneyMatch) —
+    # serialise the typed value via repr() so the wire payload stays
+    # JSON-clean. Callers needing the typed value should consume the
+    # Python API, not the MCP surface.
+    value_repr: Any
+    val = match.value
+    if val is None:
+        value_repr = None
+    elif hasattr(val, "amount") and hasattr(val, "currency"):
+        # MoneyMatch shape
+        value_repr = {"amount": str(val.amount), "currency": val.currency}
+    elif hasattr(val, "quantity") and hasattr(val, "unit"):
+        # DurationMatch shape
+        value_repr = {"quantity": str(val.quantity), "unit": val.unit}
+    elif hasattr(val, "isoformat"):
+        # datetime / date
+        value_repr = val.isoformat()
+    else:
+        # Decimal, int, float, str — pass through as string
+        value_repr = str(val)
+    return {
+        "text": match.text,
+        "value": value_repr,
+        "char_start": match.start,
+        "char_end": match.end,
+    }
+
+
+class SentencesWithDatesTool(_EntityFilterToolBase):
+    """Find sentences containing at least one date."""
+
+    _ENTITY_TYPE = "dates"
+    _DISPLAY_NAME = "dates"
+    _DESCRIPTION_TAIL = (
+        "Matches both numeric ('Jan 1, 2026', '1/1/2026') and "
+        "natural-language ('the first of January, 2026') date "
+        "expressions. Returned typed value is the parsed datetime."
+    )
+
+
+class SentencesWithMoneyTool(_EntityFilterToolBase):
+    """Find sentences containing at least one money amount."""
+
+    _ENTITY_TYPE = "money"
+    _DISPLAY_NAME = "money amounts"
+    _DESCRIPTION_TAIL = (
+        "Matches currency expressions ('$100,000', 'USD 50k', '€500'). "
+        "Returned typed value carries amount (Decimal) and currency code."
+    )
+
+
+class SentencesWithPercentsTool(_EntityFilterToolBase):
+    """Find sentences containing at least one percentage."""
+
+    _ENTITY_TYPE = "percents"
+    _DISPLAY_NAME = "percentages"
+    _DESCRIPTION_TAIL = (
+        "Matches numeric percents ('15%', '7.5 percent', 'fifteen percent'). "
+        "Returned typed value is a Decimal between 0 and 1."
+    )
+
+
+class SentencesWithDurationsTool(_EntityFilterToolBase):
+    """Find sentences containing at least one duration."""
+
+    _ENTITY_TYPE = "durations"
+    _DISPLAY_NAME = "durations"
+    _DESCRIPTION_TAIL = (
+        "Matches durations like '24 months', '7 days', 'two weeks'. "
+        "Returned typed value carries quantity (Decimal), unit (str), "
+        "and total_seconds (Decimal)."
+    )
+
+
+class SentencesWithNumbersTool(_EntityFilterToolBase):
+    """Find sentences containing at least one numeric expression."""
+
+    _ENTITY_TYPE = "numbers"
+    _DISPLAY_NAME = "numbers"
+    _DESCRIPTION_TAIL = (
+        "Matches integer and decimal numbers ('1,000', '3.14', 'one "
+        "thousand'). Broader than the typed money/percent extractors. "
+        "Returned typed value is a Decimal."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Corpus summary + narrow (K4)
+#
+# Two tools that operate on a *corpus* (a list of stored ContentDocument
+# artifacts) rather than a single document. The summary tool builds a
+# cheap deterministic DocumentSummary per artifact; the narrow tool
+# BM25-ranks summaries against a query to surface the most relevant
+# subset. Together they implement the "uploaded 10K docs, work on the
+# relevant 50" workflow from docs/design/findings-entities-summary.md
+# proposal #3.
+# ---------------------------------------------------------------------------
+
+
+class CorpusSummarizeTool(KaosTool):
+    """Build :class:`DocumentSummary` for each artifact in a corpus.
+
+    Deterministic, zero-LLM. ~100 ms per typical NDA. Returns per-artifact
+    summary previews; optionally re-stores each document with the
+    summary attached when ``persist=True`` (the caller takes
+    responsibility for the resulting fresh artifact IDs).
+    """
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-content-corpus-summarize",
+            display_name="Summarize Corpus",
+            description=(
+                "Build a deterministic, no-LLM DocumentSummary for each "
+                "stored ContentDocument artifact in a corpus. Each summary "
+                "carries head_tokens (first ~500 tokens verbatim), "
+                "top_ngrams (50 most-frequent 1-3 grams after stopword "
+                "removal), bottom_ngrams (50 rare-but-recurring n-grams — "
+                "the distinctive fingerprint), entity_counts (per-type "
+                "sentence counts), and basic statistics. Use to enable "
+                "corpus-scale triage: BM25 over summaries is "
+                "50-100x faster than BM25 over full bodies and gives "
+                "comparable narrowing quality. Pair with "
+                "kaos-content-corpus-narrow to actually run the search."
+            ),
+            category=ToolCategory.DOCUMENT,
+            capability=ToolCapability.ANALYZE,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_QUERY_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(
+                    name="artifact_ids",
+                    type="array",
+                    description=(
+                        "List of artifact IDs (stored ContentDocument) to "
+                        "summarize. Build summaries in parallel order, "
+                        "skipping artifacts whose summary is already "
+                        "populated unless force_rebuild=True."
+                    ),
+                ),
+                ParameterSchema(
+                    name="force_rebuild",
+                    type="boolean",
+                    description=(
+                        "Rebuild summaries even when the artifact already "
+                        "carries one. Default false."
+                    ),
+                    required=False,
+                    default=False,
+                ),
+                ParameterSchema(
+                    name="head_token_target",
+                    type="integer",
+                    description=(
+                        "Approximate token count for head_tokens. Default "
+                        "500 (matches build_document_summary)."
+                    ),
+                    required=False,
+                    default=500,
+                ),
+                ParameterSchema(
+                    name="with_entities",
+                    type="boolean",
+                    description=(
+                        "Populate entity_counts via the alpha extractors. "
+                        "Default true. Set false to skip extraction for "
+                        "pure lexical signal at lower cost."
+                    ),
+                    required=False,
+                    default=True,
+                ),
+            ],
+        )
+
+    async def execute(
+        self, inputs: dict[str, Any], context: KaosContext | None = None
+    ) -> ToolResult:
+        if context is None or context.runtime is None:
+            return ToolResult.create_error(_NO_CONTEXT_ERROR)
+
+        raw_ids = inputs.get("artifact_ids")
+        if not raw_ids or not isinstance(raw_ids, list):
+            return ToolResult.create_error(
+                "Missing 'artifact_ids' (list of strings). Provide the IDs "
+                "of stored ContentDocument artifacts to summarize."
+            )
+
+        force_rebuild = bool(inputs.get("force_rebuild", False))
+        head_token_target = int(inputs.get("head_token_target") or 500)
+        with_entities = bool(inputs.get("with_entities", True))
+
+        from kaos_content.artifacts import load_document
+        from kaos_content.summarize import build_document_summary
+
+        results: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        built = 0
+        skipped = 0
+        for aid in raw_ids:
+            aid_str = str(aid)
+            try:
+                doc = await load_document(aid_str, context.runtime)
+            except Exception as exc:
+                failed.append({"artifact_id": aid_str, "reason": repr(exc)})
+                continue
+
+            if doc.summary is not None and not force_rebuild:
+                summary = doc.summary
+                skipped += 1
+            else:
+                try:
+                    summary = build_document_summary(
+                        doc,
+                        head_token_target=head_token_target,
+                        with_entities=with_entities,
+                    )
+                except Exception as exc:
+                    failed.append({"artifact_id": aid_str, "reason": repr(exc)})
+                    continue
+                built += 1
+
+            results.append(
+                {
+                    "artifact_id": aid_str,
+                    "head_snippet": summary.head_tokens[:200],
+                    "top_ngrams": [
+                        {"ngram": ng.ngram, "count": ng.count} for ng in summary.top_ngrams[:10]
+                    ],
+                    "bottom_ngrams": [
+                        {"ngram": ng.ngram, "count": ng.count} for ng in summary.bottom_ngrams[:10]
+                    ],
+                    "char_length": summary.char_length,
+                    "sentence_count": summary.sentence_count,
+                    "paragraph_count": summary.paragraph_count,
+                    "entity_counts": dict(summary.entity_counts),
+                }
+            )
+
+        output = {
+            "summaries": results,
+            "built": built,
+            "skipped": skipped,
+            "failed": failed,
+            "total_requested": len(raw_ids),
+        }
+        summary_text = (
+            f"Built {built} summary/summaries, skipped {skipped} "
+            f"(already populated), {len(failed)} failed"
+        )
+        return ToolResult.create_success(output=output, summary=summary_text)
+
+
+class CorpusNarrowTool(KaosTool):
+    """Rank corpus artifacts by relevance to a query using their summaries.
+
+    BM25 over the concatenated (head_tokens + top_ngram_text +
+    bottom_ngram_text) of each artifact's summary. Builds the summary
+    on the fly when an artifact doesn't have one attached (no caching
+    side-effects).
+
+    Returns the top-K artifact IDs with scores and a short
+    distinguishing-snippet. The caller uses this output as a triage
+    hint — "process these N of K artifacts," not an answer.
+    """
+
+    @property
+    def metadata(self) -> ToolMetadata:
+        return ToolMetadata(
+            name="kaos-content-corpus-narrow",
+            display_name="Narrow Corpus by Query",
+            description=(
+                "Given a query and a corpus of stored ContentDocument "
+                "artifacts, return the top-K artifacts whose "
+                "DocumentSummary best matches the query via BM25. Use to "
+                "triage a large corpus down to a working subset before "
+                "running expensive per-document operations (extraction, "
+                "LLM Q&A). Builds summaries on demand for artifacts that "
+                "don't have one attached. Pair with "
+                "kaos-content-corpus-summarize to pre-build summaries "
+                "for very large corpora (>100 artifacts)."
+            ),
+            category=ToolCategory.DOCUMENT,
+            capability=ToolCapability.QUERY,
+            module_name=_MODULE,
+            version=_VERSION,
+            annotations=_QUERY_ANNOTATIONS,
+            input_schema=[
+                ParameterSchema(
+                    name="query",
+                    type="string",
+                    description=(
+                        "The free-form query to rank artifacts against. "
+                        "Typically the user's goal or current question."
+                    ),
+                ),
+                ParameterSchema(
+                    name="artifact_ids",
+                    type="array",
+                    description=(
+                        "List of artifact IDs (stored ContentDocument) "
+                        "forming the corpus to narrow."
+                    ),
+                ),
+                ParameterSchema(
+                    name="top_k",
+                    type="integer",
+                    description=(
+                        "Maximum number of artifacts to return. Default "
+                        "10; use higher when the corpus is large and the "
+                        "agent wants more breadth."
+                    ),
+                    required=False,
+                    default=10,
+                ),
+            ],
+        )
+
+    async def execute(
+        self, inputs: dict[str, Any], context: KaosContext | None = None
+    ) -> ToolResult:
+        if context is None or context.runtime is None:
+            return ToolResult.create_error(_NO_CONTEXT_ERROR)
+
+        query = inputs.get("query")
+        if not query or not str(query).strip():
+            return ToolResult.create_error(
+                "Missing 'query'. Provide a non-empty string to rank artifacts against."
+            )
+
+        raw_ids = inputs.get("artifact_ids")
+        if not raw_ids or not isinstance(raw_ids, list):
+            return ToolResult.create_error("Missing 'artifact_ids' (list of strings).")
+
+        top_k_raw = inputs.get("top_k")
+        top_k = 10 if top_k_raw is None else int(top_k_raw)
+        if top_k < 1:
+            return ToolResult.create_error("'top_k' must be >= 1.")
+
+        from kaos_content.artifacts import load_document
+        from kaos_content.summarize import build_document_summary
+
+        # Build the per-artifact summary text for BM25 indexing.
+        # Searcher.from_documents wants integer doc_ids; keep a parallel
+        # list mapping the integer slot back to the original artifact_id.
+        records: list[dict[str, Any]] = []
+        artifact_ids_in_order: list[str] = []
+        artifact_summaries: dict[str, Any] = {}
+        for aid in raw_ids:
+            aid_str = str(aid)
+            try:
+                doc = await load_document(aid_str, context.runtime)
+            except Exception:
+                # Skip unloadable artifacts; the agent already knows
+                # about them via the input list.
+                continue
+            summary = doc.summary
+            if summary is None:
+                try:
+                    summary = build_document_summary(doc)
+                except Exception:
+                    continue
+            artifact_summaries[aid_str] = summary
+            search_text = _summary_search_text(summary)
+            if not search_text.strip():
+                continue
+            records.append({"id": len(artifact_ids_in_order), "text": search_text})
+            artifact_ids_in_order.append(aid_str)
+
+        if not records:
+            return ToolResult.create_success(
+                output={"selected": [], "total_searched": 0},
+                summary="No artifacts had usable summaries to rank.",
+            )
+
+        # Run BM25 over the per-artifact summary text.
+        from kaos_nlp_core.search import Searcher
+
+        searcher = Searcher.from_documents(records)
+        hits = searcher.search(str(query), top_k=top_k)
+
+        # Build selected payload, preserving the per-summary signal so
+        # the caller can decide whether a hit is plausible without
+        # re-fetching the artifact.
+        selected: list[dict[str, Any]] = []
+        for hit in hits:
+            aid_str = artifact_ids_in_order[int(hit.doc_id)]
+            summary = artifact_summaries[aid_str]
+            selected.append(
+                {
+                    "artifact_id": aid_str,
+                    "score": float(getattr(hit, "score", 0.0)),
+                    "head_snippet": summary.head_tokens[:200],
+                    "distinguishing_ngrams": [ng.ngram for ng in summary.bottom_ngrams[:5]],
+                    "entity_counts": dict(summary.entity_counts),
+                }
+            )
+
+        output = {
+            "query": str(query),
+            "selected": selected,
+            "total_searched": len(records),
+            "total_requested": len(raw_ids),
+        }
+        summary_text = (
+            f"Narrowed {len(records)} artifacts to top {len(selected)} "
+            f"for query {str(query)[:60]!r}"
+        )
+        return ToolResult.create_success(output=output, summary=summary_text)
+
+
+def _summary_search_text(summary: Any) -> str:
+    """Concatenate the searchable parts of a DocumentSummary.
+
+    The triage-friendly BM25 corpus is the union of:
+    - head_tokens (captures opening structure: parties, dates, recitals)
+    - top_ngrams (thematic vocabulary)
+    - bottom_ngrams (distinctive fingerprint)
+
+    All joined with whitespace. Order doesn't matter for BM25; mixing
+    gives the searcher access to both the thematic and distinctive
+    signals.
+    """
+    parts: list[str] = []
+    if summary.head_tokens:
+        parts.append(summary.head_tokens)
+    parts.extend(ng.ngram for ng in summary.top_ngrams)
+    parts.extend(ng.ngram for ng in summary.bottom_ngrams)
+    return " ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Registration
+# ---------------------------------------------------------------------------
+
+
 def register_content_tools(runtime: Any) -> int:
     """Register all kaos-content MCP tools with the runtime. Returns count."""
     tools: list[KaosTool] = [
@@ -1575,6 +2189,15 @@ def register_content_tools(runtime: Any) -> int:
         ContextWindowTool(),
         DedupSemanticTool(),
         StatsTool(),
+        # K3 (0.1.0a6) — typed-entity sentence/paragraph filters.
+        SentencesWithDatesTool(),
+        SentencesWithMoneyTool(),
+        SentencesWithPercentsTool(),
+        SentencesWithDurationsTool(),
+        SentencesWithNumbersTool(),
+        # K4 (0.1.0a6) — corpus-level summary + narrow.
+        CorpusSummarizeTool(),
+        CorpusNarrowTool(),
     ]
     for tool in tools:
         runtime.tools.register_tool(tool)
