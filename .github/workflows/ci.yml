@@ -206,6 +206,7 @@ jobs:
             libopenblas-dev liblapack-dev gfortran
 
       - name: Install dependencies
+        continue-on-error: ${{ matrix.experimental }}
         # `shell: bash` so the `\` line continuations parse on Windows
         # runners (default shell there is PowerShell which reads `\`
         # as a unary operator). Git Bash is preinstalled on
@@ -218,6 +219,7 @@ jobs:
             --python ${{ matrix.python-version }}
 
       - name: Run unit tests with coverage
+        continue-on-error: ${{ matrix.experimental }}
         # `shell: bash` so the multi-line `\` continuations parse on
         # Windows runners (default PowerShell reads `\` as a unary
         # operator). Git Bash is preinstalled on `windows-latest`.
