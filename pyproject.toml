@@ -107,6 +107,15 @@ dedup-perceptual = ["imagehash>=4.3.0"]
 dev = [
   "kaos-nlp-core>=0.1.0a1,<0.2",
   "kaos-nlp-transformers>=0.2.0a2,<0.3",
+  # KC2 (0.1.0a7 prep): kaos-office is now published on PyPI (0.1.0a2
+  # is the floor that exposes parse_docx in the public API). Pinning
+  # it as a dev dep lets the cross-module live tests
+  # (test_summary_real_ndas, test_entity_filters_real_ndas,
+  # test_corpus_tools_real_ndas, test_office_duckdb_e2e) run and
+  # type-check without the `importorskip("kaos_office")` workaround.
+  # The tests still skip at runtime when the local NDA fixtures are
+  # absent (`@requires_nda_fixtures`).
+  "kaos-office>=0.1.0a2,<0.2",
   "scipy>=1.14.1",
   "Pillow>=12.2.0",
   "numpy>=2.1.0",
@@ -219,20 +228,11 @@ known-first-party = ["kaos_content"]
 
 [tool.ty.src]
 include = ["kaos_content", "tests"]
-# kaos-office is still 404 on PyPI; its end-to-end tests stay excluded
-# from the static type sweep. The dedup test was excluded for the same
-# reason while kaos-nlp-transformers was unpublished — it now resolves
-# via the dev pin and is back in scope.
-exclude = [
-  "tests/integration/test_office_duckdb_e2e.py",
-  # 0.1.0a6 K1/K2/K4 live tests parse real NDA docx files via the
-  # same kaos-office import path that's still unpublished. Skipped
-  # at runtime via pytest.mark.skipif on NDA fixture absence; here
-  # we just need ty to skip them too.
-  "tests/integration/test_summary_real_ndas.py",
-  "tests/integration/test_entity_filters_real_ndas.py",
-  "tests/integration/test_corpus_tools_real_ndas.py",
-]
+# KC2 (0.1.0a7 prep): the kaos-office cross-module tests are no longer
+# excluded — kaos-office 0.1.0a2 is now on PyPI and pinned in the dev
+# group, so ty can resolve `from kaos_office import parse_docx` and
+# walk the bodies. Runtime skips on NDA fixture absence still apply
+# (the local docx files are not shipped with the repo).
 
 [tool.uv]
 package = true
