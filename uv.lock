@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.13"
 
 [options]
-exclude-newer = "2026-05-09T01:45:57.429672404Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "PT72H"
 
 [options.exclude-newer-package]
@@ -461,7 +461,7 @@ wheels = [
 
 [[package]]
 name = "kaos-nlp-transformers"
-version = "0.2.0a3"
+version = "0.2.0a4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "huggingface-hub" },
@@ -469,13 +469,13 @@ dependencies = [
     { name = "kaos-nlp-core" },
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2f/44/ee16c7d00dc296484e036f135ca81dae2c0ce95d3d2c6143e9409642b1c1/kaos_nlp_transformers-0.2.0a3.tar.gz", hash = "sha256:1647f0332fcd257f56cb34b316688bf16531cf2dd0a1dc8ad82a0034671737fd", size = 28757845, upload-time = "2026-05-10T08:43:01.107Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/0d/c54fa913cfae4f2335ebe1d2a06c6422c5aafa9b6e64c25b00fbef033e1c/kaos_nlp_transformers-0.2.0a4.tar.gz", hash = "sha256:04156de8dbc19b0effa2150647200a8e8a6e176468b297c6434971dbc74b20e2", size = 28827442, upload-time = "2026-05-11T02:11:22.315Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/04/3c/d484e4cd40ee54f5ac7a08944991d2f81ed079cb556fcee25f1db82d4df4/kaos_nlp_transformers-0.2.0a3-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:afe4ee9b7d49112cea1b1cb58e538c41b15112fa2d26c341e2dbf9368d91a1b9", size = 37237462, upload-time = "2026-05-10T08:42:42.426Z" },
-    { url = "https://files.pythonhosted.org/packages/e4/1a/187bb9b39e0cecfe5749371c0dc5efeabb265d3b79e3312c36fd92041fa8/kaos_nlp_transformers-0.2.0a3-cp313-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:74c4a9a29324d1bca26f7d93a418cd75fa8075ccc54c1b2ab1c9c372f3e9f3e8", size = 39414803, upload-time = "2026-05-10T08:42:46.228Z" },
-    { url = "https://files.pythonhosted.org/packages/3d/37/3ce91fb6d8c791b6efaa41a545b328881866b35292dbfe68162e126b7e85/kaos_nlp_transformers-0.2.0a3-cp313-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:85908e09c1bbdacc04ee942d840f100377c5890bfd3422cca0ccd35be57022c9", size = 38524358, upload-time = "2026-05-10T08:42:50.139Z" },
-    { url = "https://files.pythonhosted.org/packages/79/20/488609482955bdb297c0c97aa4c2179d6bb1cf0bfa0f76a7d8fee2e72642/kaos_nlp_transformers-0.2.0a3-cp313-abi3-win_amd64.whl", hash = "sha256:0b8cd98618895dee200d10084b0971156264b0bb728834a88c1d04dfb5cb426f", size = 37687218, upload-time = "2026-05-10T08:42:53.957Z" },
-    { url = "https://files.pythonhosted.org/packages/7f/e7/48b4975826ce20f0fb4eaa4c85501239de9fca5f9f35fd09790291494bc2/kaos_nlp_transformers-0.2.0a3-cp313-abi3-win_arm64.whl", hash = "sha256:cdc70714af682f92fa3ce669414c7a3ac2282c9becfde83efc0b49b34cef5e08", size = 37217936, upload-time = "2026-05-10T08:42:57.508Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/c9/68cb823738c3f5b3820f95d75575eedae62583df5bc0d87f99afd473328c/kaos_nlp_transformers-0.2.0a4-cp313-abi3-macosx_11_0_arm64.whl", hash = "sha256:3e7103e5407d175a9dc1ad5d7871b468e7bd33f31f96d7df13ed2baba41b3a4e", size = 37236346, upload-time = "2026-05-11T02:11:02.849Z" },
+    { url = "https://files.pythonhosted.org/packages/19/34/7cf246ba495af6096b019f7e239df66196e448d4a16c82d1de382bc6b26f/kaos_nlp_transformers-0.2.0a4-cp313-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:c82b0b55c43477de06085775167a1aee6a781ccb2c326714c90b466c7ed787d3", size = 39414614, upload-time = "2026-05-11T02:11:06.31Z" },
+    { url = "https://files.pythonhosted.org/packages/26/27/ebc78c30d0cb252ed48852dd72c1c90c8089a9bfba5bbb8c3c950a9559b9/kaos_nlp_transformers-0.2.0a4-cp313-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:fa0e6b0a8026ab3095b0c2f3e0f1fc4c20819f9af6f033257137764d9e5a1200", size = 38523654, upload-time = "2026-05-11T02:11:11.153Z" },
+    { url = "https://files.pythonhosted.org/packages/81/55/1b09d35d69026d0a7063635353d42494b18e33b3d1dbeb120cf8d690a6b4/kaos_nlp_transformers-0.2.0a4-cp313-abi3-win_amd64.whl", hash = "sha256:3cf5d5dd6921f1cfdc6d5e69afda8acad653364d4f9e80573705871b1890c037", size = 37686290, upload-time = "2026-05-11T02:11:14.693Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/09/3858df13c9aea52ce961744d0b22264a169c95a96457cad13416672b17cb/kaos_nlp_transformers-0.2.0a4-cp313-abi3-win_arm64.whl", hash = "sha256:c185807a984fe217d313f49c01aaca1309c5487e66b2234efca0a8a97672c26a", size = 37217969, upload-time = "2026-05-11T02:11:18.187Z" },
 ]
 
 [[package]]
