@@ -97,6 +97,30 @@ class SentenceEntityHit:
 
     sentence: SentenceView
     matches: tuple[EntityMatch, ...]
+    salience: float = 0.0
+    """Salience score in ``[0.0, 1.0]``.
+
+    Combines three signals so top-K selection picks the load-bearing
+    sentence (effective date, signature line, term length) rather than
+    the first date mentioned (often a year-of boilerplate):
+
+    1. **Count** (weight 0.6) — distinct typed values in the sentence;
+       saturates at 3. The dominant signal: a sentence with two dates
+       ("effective ... expires ...") is almost always more important
+       than a sentence with one passing date reference.
+    2. **Position** (weight 0.2) — back-of-document signature blocks
+       and heading-adjacent paragraphs score above the mid-body floor.
+       No blanket "front of document" bonus — the very first sentence
+       is typically a WHEREAS preamble, not a term clause.
+    3. **Length** (weight 0.2) — triangular peak around 40-200 chars;
+       very short (< 20) or very long (> 400) get 0. Signature stubs
+       and run-on boilerplate are both penalised.
+
+    ``0.0`` for hits with no matches (which the filter normally skips,
+    but the constructor default keeps the dataclass usable on its own).
+    Higher = more important; the MCP wrapper sorts by this descending,
+    with document position ascending as tiebreaker.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +132,10 @@ class ParagraphEntityHit:
 
     paragraph: ParagraphView
     matches: tuple[EntityMatch, ...]
+    salience: float = 0.0
+    """Salience score in ``[0.0, 1.0]``. See :class:`SentenceEntityHit`
+    for the formula. Paragraph-level scores use the same three signals
+    over paragraph text rather than sentence text."""
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +201,8 @@ def iter_sentences_with_entity(
     Yields:
         :class:`SentenceEntityHit` for each sentence whose text
         contains >=1 match. Sentences with zero matches are skipped.
+        Hits carry a precomputed ``salience`` score; the iterator
+        order is still document order (PA9: the MCP tool sorts).
 
     Raises:
         RuntimeError: If ``view`` lacks a sentence segmenter.
@@ -188,10 +218,24 @@ def iter_sentences_with_entity(
         raise RuntimeError(msg)
 
     extractor = _get_extractor(entity_type)
-    for sentence in view.sentences:
+    all_sentences = view.sentences
+    total = len(all_sentences)
+    # Block_refs that are the first paragraph after a heading — used
+    # for the "heading-adjacent" position boost. We precompute on the
+    # paragraph view since paragraphs carry section_ref.
+    heading_proximate_refs = _heading_proximate_paragraph_refs(view)
+    for idx, sentence in enumerate(all_sentences):
         matches = _matches_in(extractor, entity_type, sentence.text)
-        if matches:
-            yield SentenceEntityHit(sentence=sentence, matches=matches)
+        if not matches:
+            continue
+        salience = _compute_salience(
+            text=sentence.text,
+            matches=matches,
+            position_index=idx,
+            position_total=total,
+            heading_proximate=sentence.paragraph_ref in heading_proximate_refs,
+        )
+        yield SentenceEntityHit(sentence=sentence, matches=matches, salience=salience)
 
 
 def iter_paragraphs_with_entity(
@@ -201,13 +245,25 @@ def iter_paragraphs_with_entity(
     """Yield each paragraph containing at least one match of ``entity_type``.
 
     No sentence segmenter required — paragraphs are always available
-    on a :class:`DocumentView`.
+    on a :class:`DocumentView`. Hits carry a precomputed ``salience``
+    score (PA9); document order is preserved in the iteration sequence.
     """
     extractor = _get_extractor(entity_type)
-    for paragraph in view.paragraphs:
+    all_paragraphs = view.paragraphs
+    total = len(all_paragraphs)
+    heading_proximate_refs = _heading_proximate_paragraph_refs(view)
+    for idx, paragraph in enumerate(all_paragraphs):
         matches = _matches_in(extractor, entity_type, paragraph.text)
-        if matches:
-            yield ParagraphEntityHit(paragraph=paragraph, matches=matches)
+        if not matches:
+            continue
+        salience = _compute_salience(
+            text=paragraph.text,
+            matches=matches,
+            position_index=idx,
+            position_total=total,
+            heading_proximate=paragraph.block_ref in heading_proximate_refs,
+        )
+        yield ParagraphEntityHit(paragraph=paragraph, matches=matches, salience=salience)
 
 
 # Per-type convenience wrappers. These exist purely for ergonomics —
@@ -268,6 +324,139 @@ def paragraphs_with_numbers(view: DocumentView) -> tuple[ParagraphEntityHit, ...
 # ---------------------------------------------------------------------------
 # Internal
 # ---------------------------------------------------------------------------
+
+
+# Salience component weights. Tunable but stable; documented in the
+# SentenceEntityHit docstring. Sum == 1.0 so the result is already in
+# [0, 1] given each component score is in [0, 1].
+#
+# Count weight dominates: density of distinct typed values is the
+# strongest signal that a sentence is a "term clause" rather than a
+# passing date reference. Position and length round out the score so
+# the count signal doesn't crown noisy duplicates.
+_W_COUNT: float = 0.6
+_W_POSITION: float = 0.2
+_W_LENGTH: float = 0.2
+
+# Length-score band: triangular peak in [LEN_LOW, LEN_HIGH] chars.
+# Below LEN_MIN: penalty grows linearly to 0. Above LEN_MAX: same on
+# the other side. Tuned for legal-prose text after eyeballing NDA
+# sentence-length distributions:
+#   - signature lines ("Dated: ____") cluster <30 chars
+#   - body sentences cluster 80-200 chars
+#   - boilerplate "By signing this agreement, the parties ..." can
+#     run 400+ chars
+_LEN_MIN: int = 20
+_LEN_LOW: int = 40
+_LEN_HIGH: int = 200
+_LEN_MAX: int = 400
+
+# Position-score: signature blocks (last ~10% of document) get a boost
+# on top of the mid-body floor; the front of the document gets no
+# blanket bonus (the heading-proximity signal handles "first paragraph
+# after the title" cases).
+_BACK_RATIO: float = 0.1
+_POSITION_FLOOR: float = 0.25
+_HEADING_PROXIMITY_BUMP: float = 0.3
+
+
+def _compute_salience(
+    *,
+    text: str,
+    matches: tuple[EntityMatch, ...],
+    position_index: int,
+    position_total: int,
+    heading_proximate: bool,
+) -> float:
+    """Combine count + position + length signals into a [0, 1] salience score.
+
+    See :class:`SentenceEntityHit` for the formula's rationale. Pure
+    function of the inputs — no side effects, deterministic, cheap
+    (constant time given match count is bounded by sentence length).
+    """
+    if not matches:
+        return 0.0
+
+    # 1. Count signal. Distinct typed values is a better proxy than raw
+    # match count: "$5,000 and $5,000" should not double-score over
+    # "$5,000". Fall back to the matched text when value isn't hashable
+    # (the typed extractors return dataclasses, datetime, Decimal —
+    # all hashable in practice).
+    distinct: set[Any] = set()
+    for m in matches:
+        try:
+            distinct.add(m.value if m.value is not None else m.text)
+        except TypeError:
+            # Unhashable typed value — degrade to text-level dedup.
+            distinct.add(m.text)
+    count_score = min(1.0, len(distinct) / 3.0)
+
+    # 2. Position signal. The back-of-document ramp (signature block)
+    # plus a heading-proximity bump. We intentionally do NOT add a
+    # "front of document" boost — the very first sentence is often
+    # a WHEREAS preamble or year-of boilerplate, not load-bearing.
+    # Heading-proximity is the structural signal for "front matter
+    # that matters" (first paragraph after the title carries the
+    # "as of ___" date in most NDAs).
+    if position_total <= 1:
+        position_score = 1.0
+    else:
+        pos = position_index / position_total
+        back = max(0.0, (pos - (1.0 - _BACK_RATIO)) / _BACK_RATIO) if _BACK_RATIO > 0 else 0.0
+        position_score = max(_POSITION_FLOOR, back)
+    if heading_proximate:
+        position_score = min(1.0, position_score + _HEADING_PROXIMITY_BUMP)
+
+    # 3. Length signal — triangular peak. Very short or very long
+    # sentences are penalised; the sweet spot is the legal-prose band.
+    n = len(text)
+    if n <= _LEN_MIN or n >= _LEN_MAX:
+        length_score = 0.0
+    elif _LEN_LOW <= n <= _LEN_HIGH:
+        length_score = 1.0
+    elif n < _LEN_LOW:
+        # Ramp up from 0 (at LEN_MIN) to 1 (at LEN_LOW).
+        length_score = (n - _LEN_MIN) / (_LEN_LOW - _LEN_MIN)
+    else:
+        # Ramp down from 1 (at LEN_HIGH) to 0 (at LEN_MAX).
+        length_score = (_LEN_MAX - n) / (_LEN_MAX - _LEN_HIGH)
+
+    score = _W_COUNT * count_score + _W_POSITION * position_score + _W_LENGTH * length_score
+    # Numerical safety: clamp into [0, 1]. With sum-of-weights == 1
+    # and each component in [0, 1], score is already in [0, 1] modulo
+    # float drift; clamp keeps the public contract strict.
+    if score < 0.0:
+        return 0.0
+    if score > 1.0:
+        return 1.0
+    return score
+
+
+def _heading_proximate_paragraph_refs(view: DocumentView) -> frozenset[str]:
+    """Block-refs for paragraphs that sit directly after a heading.
+
+    "Directly after" = the first paragraph encountered after a heading
+    block within the document's flat body order. These tend to be
+    high-salience (e.g. "This Agreement is entered into as of ___" as
+    the first paragraph after the title). Cheap to compute on demand
+    and cached implicitly by the view's paragraph cache.
+    """
+    from kaos_content.model.blocks import Heading
+
+    proximate: set[str] = set()
+    saw_heading = False
+    # Walk the flat body; only first-level paragraphs get tagged. The
+    # rare nested paragraph (inside a BlockQuote etc.) is skipped — the
+    # heading-proximity signal is meant for top-level structure.
+    for i, block in enumerate(view.document.body):
+        if isinstance(block, Heading):
+            saw_heading = True
+            continue
+        if block.node_type == "paragraph":
+            if saw_heading:
+                proximate.add(f"#/body/{i}")
+            saw_heading = False
+    return frozenset(proximate)
 
 
 def _matches_in(extractor: Any, entity_type: str, text: str) -> tuple[EntityMatch, ...]:
