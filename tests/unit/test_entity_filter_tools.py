@@ -124,7 +124,7 @@ class TestToolMetadata:
     def test_input_schema_has_artifact_id_granularity_max_results(self) -> None:
         tool = SentencesWithDatesTool()
         params = {p.name for p in tool.metadata.input_schema}
-        assert params == {"artifact_id", "granularity", "max_results"}
+        assert params == {"artifact_id", "granularity", "max_results", "select_by"}
 
 
 # ---------------------------------------------------------------------------
@@ -259,3 +259,102 @@ class TestErrors:
         result = await tool.execute({"artifact_id": "does-not-exist"}, context)
         assert result.isError
         assert "Failed to load" in _error_text(result)
+
+
+# ---------------------------------------------------------------------------
+# Salience + select_by (PA9)
+# ---------------------------------------------------------------------------
+
+
+def _salience_doc() -> ContentDocument:
+    """An NDA-shaped fixture with early boilerplate dates and a mid-body
+    term clause containing two dates. Mirrors the real-world failure
+    mode: first-N-by-position picks the boilerplate; PA9 salience picks
+    the load-bearing sentence."""
+    from kaos_content.shortcuts import heading as _h
+    from kaos_content.shortcuts import paragraph as _p
+
+    return ContentDocument(
+        body=(
+            _h(1, "Mutual Non-Disclosure Agreement"),
+            _p(
+                "WHEREAS the parties have been discussing matters since "
+                "January 1, 2025, they wish to formalise the terms below."
+            ),
+            _p("In the year 2026, the parties continue to confer."),
+            _p("This Agreement is effective as of March 15, 2026 and expires on March 15, 2027."),
+            _p("Notice was given on April 1, 2026 of certain matters."),
+            _h(2, "Signatures"),
+            _p("Dated: April 22, 2026."),
+        ),
+    )
+
+
+class TestSelectBy:
+    async def test_salience_default_promotes_load_bearing_sentence(
+        self, context: KaosContext
+    ) -> None:
+        """Default select_by='salience' surfaces the dense term clause
+        ahead of the WHEREAS boilerplate when max_results truncates the
+        list. This is the PA9 win condition."""
+        artifact_id = await _store(_salience_doc(), context)
+        tool = SentencesWithDatesTool()
+        result = await tool.execute({"artifact_id": artifact_id, "max_results": 1}, context)
+        out = _payload(result)
+        assert out["select_by"] == "salience"
+        first_text = out["matches"][0]["text"]
+        # The dense "effective ... expires" sentence must beat the early
+        # WHEREAS boilerplate.
+        assert "March 15" in first_text
+        assert "January 1, 2025" not in first_text
+
+    async def test_position_reproduces_pre_pa9_ordering(self, context: KaosContext) -> None:
+        """select_by='position' returns hits in strict document order —
+        the pre-PA9 behaviour. Backward-compat contract."""
+        artifact_id = await _store(_salience_doc(), context)
+        tool = SentencesWithDatesTool()
+        result = await tool.execute(
+            {"artifact_id": artifact_id, "select_by": "position"},
+            context,
+        )
+        out = _payload(result)
+        assert out["select_by"] == "position"
+        # First hit is the WHEREAS boilerplate (earliest date in doc order).
+        assert "January 1, 2025" in out["matches"][0]["text"]
+
+    async def test_payload_carries_salience_field(self, context: KaosContext) -> None:
+        """Every match in the payload must include the salience score
+        so downstream agents can re-rank, threshold, or audit."""
+        artifact_id = await _store(_salience_doc(), context)
+        tool = SentencesWithDatesTool()
+        result = await tool.execute({"artifact_id": artifact_id}, context)
+        out = _payload(result)
+        for m in out["matches"]:
+            assert "salience" in m
+            assert 0.0 <= float(m["salience"]) <= 1.0
+
+    async def test_invalid_select_by_rejected(self, context: KaosContext) -> None:
+        artifact_id = await _store(_salience_doc(), context)
+        tool = SentencesWithDatesTool()
+        result = await tool.execute({"artifact_id": artifact_id, "select_by": "magic"}, context)
+        assert result.isError
+        assert "select_by" in _error_text(result)
+
+    async def test_topk_by_salience_differs_from_topk_by_position(
+        self, context: KaosContext
+    ) -> None:
+        """Top-3 by salience must NOT equal top-3 by position on the
+        fixture — the regression test for PA9's value proposition."""
+        artifact_id = await _store(_salience_doc(), context)
+        tool = SentencesWithDatesTool()
+        salience_res = await tool.execute(
+            {"artifact_id": artifact_id, "max_results": 3, "select_by": "salience"},
+            context,
+        )
+        position_res = await tool.execute(
+            {"artifact_id": artifact_id, "max_results": 3, "select_by": "position"},
+            context,
+        )
+        s_texts = [m["text"] for m in _payload(salience_res)["matches"]]
+        p_texts = [m["text"] for m in _payload(position_res)["matches"]]
+        assert s_texts != p_texts

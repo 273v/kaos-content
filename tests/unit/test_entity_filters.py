@@ -277,3 +277,133 @@ class TestCrossExtractor:
         d = hits[0].matches[0].value
         assert isinstance(d, datetime)
         assert d.year == 2026
+
+
+# ---------------------------------------------------------------------------
+# Salience (PA9)
+#
+# K3 originally returned hits in document order — "top 3 dates" yielded
+# the first 3 dates mentioned, often boilerplate ("the year 2026 …").
+# PA9 adds a salience score combining match-density + document position
+# + sentence length so top-K selection picks the load-bearing hits.
+# ---------------------------------------------------------------------------
+
+
+def _nda_like_doc() -> ContentDocument:
+    """An NDA-shaped document with multiple irrelevant early dates and
+    a load-bearing "effective + termination" sentence in the middle.
+
+    Mirrors the real failure mode the user described: boilerplate
+    references to "the year 2026" early in the document outrank the
+    actual term clause when ranking by position.
+    """
+    from kaos_content.shortcuts import heading, paragraph
+
+    return ContentDocument(
+        body=(
+            heading(1, "Mutual Non-Disclosure Agreement"),
+            # Boilerplate paragraph 1 — single throwaway date.
+            paragraph(
+                "WHEREAS the parties have been discussing matters since "
+                "January 1, 2025, they wish to formalise the terms below."
+            ),
+            # Boilerplate paragraph 2 — another single year-reference.
+            paragraph("In the year 2026, the parties continue to confer."),
+            # The MIDDLE paragraph carries TWO dates and is the term clause.
+            paragraph(
+                "This Agreement is effective as of March 15, 2026 and expires on March 15, 2027."
+            ),
+            # Body filler — single date.
+            paragraph("Notice was given on April 1, 2026 of certain matters."),
+            heading(2, "Signatures"),
+            # Short signature-block sentence at the end — high position score.
+            paragraph("Dated: April 22, 2026."),
+        ),
+    )
+
+
+class TestSalience:
+    def test_salience_is_in_unit_interval(self) -> None:
+        """Every hit's salience must land in [0.0, 1.0] — the public contract."""
+        for hit in sentences_with_dates(_view(_nda_like_doc())):
+            assert 0.0 <= hit.salience <= 1.0
+
+    def test_salience_picks_dense_clause_over_early_boilerplate(self) -> None:
+        """The top-by-salience date sentence is the multi-date term clause,
+        NOT the first date sentence in the document.
+
+        This is the regression PA9 exists to prevent: document-order
+        selection returns the first dates mentioned (often boilerplate),
+        salience-order surfaces the load-bearing clause.
+        """
+        hits = sentences_with_dates(_view(_nda_like_doc()))
+        # In doc order the first hit is the WHEREAS boilerplate.
+        by_position = list(hits)
+        assert "January 1, 2025" in by_position[0].sentence.text
+        # By salience the first hit is the dense term clause.
+        by_salience = sorted(hits, key=lambda h: (-h.salience, 0))
+        top_text = by_salience[0].sentence.text
+        assert "March 15, 2026" in top_text or "expires on March 15, 2027" in top_text
+
+    def test_topk_by_salience_differs_from_topk_by_position(self) -> None:
+        """Top-3 by salience must NOT equal top-3 by position on this doc.
+
+        The fixture is constructed so the count signal alone (two distinct
+        dates in the term clause vs one in each boilerplate sentence)
+        forces the term clause out of position-order's top window.
+        """
+        hits = list(sentences_with_dates(_view(_nda_like_doc())))
+        top3_position = [h.sentence.text for h in hits[:3]]
+        top3_salience = [h.sentence.text for h in sorted(hits, key=lambda h: (-h.salience, 0))[:3]]
+        assert top3_position != top3_salience
+
+    def test_empty_matches_yields_zero_salience(self) -> None:
+        """Hits with no matches get salience 0.0 — sanity guard for the
+        default value on the dataclass. The filter skips empty hits in
+        practice, but the contract holds when callers construct hits
+        directly (e.g. in tests)."""
+        hit = SentenceEntityHit(
+            sentence=_view(_nda_like_doc()).sentences[0],
+            matches=(),
+        )
+        assert hit.salience == 0.0
+
+    def test_position_score_boosts_heading_adjacent_paragraph(self) -> None:
+        """A heading-adjacent paragraph with the same match count + length
+        as a mid-body paragraph scores higher on salience. Confirms the
+        heading-proximity bump described in the salience docstring."""
+        from kaos_content.shortcuts import heading as _h
+        from kaos_content.shortcuts import paragraph as _p
+
+        text_with_date = (
+            "The notice was served on January 1, 2026 in compliance with "
+            "the agreement terms then in effect."
+        )
+        # Doc 1: heading then the dated paragraph (heading-adjacent).
+        doc1 = ContentDocument(body=(_h(1, "Section"), _p(text_with_date), _p("body filler")))
+        # Doc 2: dated paragraph not adjacent to any heading.
+        doc2 = ContentDocument(body=(_p("body filler"), _p(text_with_date), _p("body filler")))
+        hits1 = sentences_with_dates(_view(doc1))
+        hits2 = sentences_with_dates(_view(doc2))
+        assert hits1 and hits2
+        assert hits1[0].salience > hits2[0].salience
+
+    def test_length_score_penalises_very_long_sentences(self) -> None:
+        """A pathologically long sentence loses points on the length axis.
+
+        Same date in both docs; only the surrounding prose changes.
+        """
+        from kaos_content.shortcuts import paragraph as _p
+
+        short = "Dated: January 1, 2026."
+        long_filler = " ".join(["this is filler prose"] * 50)  # >400 chars
+        very_long = f"On January 1, 2026 {long_filler} — by both parties."
+        doc_short = ContentDocument(body=(_p(short),))
+        doc_long = ContentDocument(body=(_p(very_long),))
+        hits_short = sentences_with_dates(_view(doc_short))
+        hits_long = sentences_with_dates(_view(doc_long))
+        assert hits_short and hits_long
+        # very_long is >400 chars -> length score 0; short is <40 -> ramp.
+        # Both should still score, but short > long by virtue of the length
+        # axis alone (count + position factors are identical).
+        assert hits_short[0].salience > hits_long[0].salience

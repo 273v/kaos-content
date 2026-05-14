@@ -1601,6 +1601,10 @@ class _EntityFilterToolBase(KaosTool):
                 "Deterministic — pure regex + dictionary lookups, zero LLM "
                 "cost. Each match carries the typed extracted value so "
                 "agents can sort, threshold, or compare without re-parsing. "
+                "Results carry a salience score in [0, 1] combining match "
+                "density + document position + sentence length; the default "
+                "select_by='salience' picks the load-bearing hits (effective "
+                "date, signature lines) over early boilerplate. "
                 "Pair with kaos-content-stats / kaos-content-summarize for "
                 "corpus-scale triage."
             ),
@@ -1636,6 +1640,21 @@ class _EntityFilterToolBase(KaosTool):
                     required=False,
                     default=50,
                 ),
+                ParameterSchema(
+                    name="select_by",
+                    type="string",
+                    description=(
+                        "Ranking used when more hits exist than 'max_results'. "
+                        "'salience' (default, PA9) picks the load-bearing hits "
+                        "via the salience score documented on SentenceEntityHit "
+                        "— match-density + heading-adjacent / front-and-back "
+                        "position + length bell. 'position' preserves document "
+                        "order (the pre-PA9 behaviour) — use when you need the "
+                        "first N hits in reading order, not the most important."
+                    ),
+                    required=False,
+                    default="salience",
+                ),
             ],
         )
 
@@ -1665,6 +1684,14 @@ class _EntityFilterToolBase(KaosTool):
         if max_results < 1:
             return ToolResult.create_error("'max_results' must be >= 1.")
 
+        select_by = inputs.get("select_by", "salience")
+        if select_by not in ("salience", "position"):
+            return ToolResult.create_error(
+                f"Invalid select_by {select_by!r}. Must be 'salience' or 'position'. "
+                "Fix: use 'salience' (default) to surface load-bearing hits, or "
+                "'position' for document-order results (the pre-PA9 behaviour)."
+            )
+
         from kaos_content.artifacts import load_document
         from kaos_content.views import DocumentView
         from kaos_content.views.entity_filters import (
@@ -1686,6 +1713,10 @@ class _EntityFilterToolBase(KaosTool):
 
             view = DocumentView(doc, sentence_segmenter=get_default_punkt_tokenizer())
             hits = list(iter_sentences_with_entity(view, self._ENTITY_TYPE))
+            # Sort: salience asks for highest first; position keeps doc
+            # order. Both use enumerate-index as the stable tiebreaker
+            # so equal-salience hits surface in reading order.
+            ranked = _rank_hits(hits, select_by)
             matches_payload = [
                 {
                     "block_ref": h.sentence.paragraph_ref,
@@ -1694,22 +1725,25 @@ class _EntityFilterToolBase(KaosTool):
                     "text": h.sentence.text,
                     "char_start": h.sentence.start,
                     "char_end": h.sentence.end,
+                    "salience": h.salience,
                     "entities": [_match_payload(m) for m in h.matches],
                 }
-                for h in hits[:max_results]
+                for h in ranked[:max_results]
             ]
         else:
             view = DocumentView(doc)
             hits = list(iter_paragraphs_with_entity(view, self._ENTITY_TYPE))
+            ranked = _rank_hits(hits, select_by)
             matches_payload = [
                 {
                     "block_ref": h.paragraph.block_ref,
                     "page": h.paragraph.page,
                     "section_title": _section_title_for(view, h.paragraph.section_ref),
                     "text": h.paragraph.text,
+                    "salience": h.salience,
                     "entities": [_match_payload(m) for m in h.matches],
                 }
-                for h in hits[:max_results]
+                for h in ranked[:max_results]
             ]
 
         total = len(hits)
@@ -1718,13 +1752,15 @@ class _EntityFilterToolBase(KaosTool):
             "artifact_id": artifact_id,
             "entity_type": self._ENTITY_TYPE,
             "granularity": granularity,
+            "select_by": select_by,
             "matches": matches_payload,
             "total_matches": total,
             "has_more": has_more,
         }
         summary = (
             f"Found {total} {granularity}(s) with {self._DISPLAY_NAME} "
-            f"in artifact {artifact_id}" + (f" (showing first {max_results})" if has_more else "")
+            f"in artifact {artifact_id} (ranked by {select_by})"
+            + (f" (showing first {max_results})" if has_more else "")
         )
         return ToolResult.create_success(output=output, summary=summary)
 
@@ -1735,6 +1771,28 @@ def _section_title_for(view: Any, section_ref: str | None) -> str | None:
         return None
     sec = view.section_by_ref(section_ref)
     return sec.heading_text if sec is not None else None
+
+
+def _rank_hits(hits: list[Any], select_by: str) -> list[Any]:
+    """Order entity-filter hits for the MCP tool's top-K window.
+
+    Args:
+        hits: list of :class:`SentenceEntityHit` or
+            :class:`ParagraphEntityHit` in document order.
+        select_by: ``"salience"`` or ``"position"``.
+
+    Returns:
+        A new list ordered for top-K selection. ``"position"`` returns
+        the input as-is (bit-for-bit pre-PA9 behaviour). ``"salience"``
+        sorts by salience descending, with document index ascending as
+        the stable tiebreaker. The original list is never mutated.
+    """
+    if select_by == "position":
+        return list(hits)
+    # Enumerate to capture the doc-order index as the tiebreaker.
+    indexed = list(enumerate(hits))
+    indexed.sort(key=lambda pair: (-pair[1].salience, pair[0]))
+    return [h for _, h in indexed]
 
 
 def _match_payload(match: Any) -> dict[str, Any]:
