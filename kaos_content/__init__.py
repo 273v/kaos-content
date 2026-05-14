@@ -221,6 +221,19 @@ try:
 except ImportError:
     pass
 
+# [html] extra (lxml). parse_html is the canonical HTML → ContentDocument
+# entry point per docs/guides/python-api-naming.md. It is NOT auto-imported
+# by kaos_content.parsers.__init__ (so importing the parsers package stays
+# cheap when lxml is missing), but it IS re-exported here at the top level
+# when [html] is installed.
+_HTML_AVAILABLE = False
+try:
+    from kaos_content.parsers.html import parse_html  # noqa: F401
+
+    _HTML_AVAILABLE = True
+except ImportError:
+    pass
+
 # [nlp] extra — SearchableDocument / SearchableCorpus need kaos-nlp-core.
 _INDEXING_AVAILABLE = False
 try:
@@ -420,6 +433,10 @@ if _LAYOUT_AVAILABLE:
 # [markdown] extra — append only if markdown-it-py was importable.
 if _MARKDOWN_AVAILABLE:
     __all__.append("parse_markdown")
+
+# [html] extra — append only if lxml was importable.
+if _HTML_AVAILABLE:
+    __all__.append("parse_html")
 
 # [nlp] extra — SearchableDocument / SearchableCorpus need kaos-nlp-core.
 if _INDEXING_AVAILABLE:
