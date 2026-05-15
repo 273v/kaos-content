@@ -1309,7 +1309,17 @@ class DedupSemanticTool(KaosTool):
                         "`text` (string). Empty / whitespace-only texts "
                         "are skipped."
                     ),
-                    constraints={"minItems": 2},
+                    constraints={
+                        "minItems": 2,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "doc_id": {"type": "string"},
+                                "text": {"type": "string"},
+                            },
+                            "required": ["doc_id", "text"],
+                        },
+                    },
                 ),
                 ParameterSchema(
                     name="distance_threshold",
@@ -1938,6 +1948,7 @@ class CorpusSummarizeTool(KaosTool):
                         "skipping artifacts whose summary is already "
                         "populated unless force_rebuild=True."
                     ),
+                    constraints={"items": {"type": "string"}},
                 ),
                 ParameterSchema(
                     name="force_rebuild",
@@ -2101,6 +2112,7 @@ class CorpusNarrowTool(KaosTool):
                         "List of artifact IDs (stored ContentDocument) "
                         "forming the corpus to narrow."
                     ),
+                    constraints={"items": {"type": "string"}},
                 ),
                 ParameterSchema(
                     name="top_k",
