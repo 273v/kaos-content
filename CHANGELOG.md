@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Three array parameters across the MCP tool catalog now declare
+  their element types.** Each was previously `type=array` with no
+  `items`, which OpenAI's strict JSON Schema validator rejected
+  with HTTP 400 `invalid_function_parameters` — the whole tool
+  catalog for the turn was lost.
+  - `kaos-content-corpus-cluster.documents` now declares
+    `items: {type: "object", properties: {doc_id, text},
+    required: ["doc_id", "text"]}` so the LLM populates each
+    record with the correct shape on the first try.
+  - `kaos-content-summarize-corpus.artifact_ids` and
+    `kaos-content-corpus-narrow.artifact_ids` now declare
+    `items: {type: "string"}`.
+  kaos-core 0.1.0a7's defensive `items: {}` floor is belt +
+  suspenders.
+
 ## [0.1.0a6] — 2026-05-11
 
 ### Added
