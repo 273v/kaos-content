@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [0.1.0a8] — 2026-05-16
+
+### Changed
+
+- **Lockfile refreshed to track the rest of the kaos-* org.** Pinned
+  development versions of sibling packages updated to today's
+  releases — `kaos-core` 0.1.0a4 → 0.1.0a7, `kaos-nlp-core`
+  0.1.0a1 → 0.1.0a8, `kaos-nlp-transformers` 0.2.0a3 → 0.2.0a8,
+  `kaos-office` 0.1.0a2 → 0.1.0a4. The base-install `kaos-core`
+  constraint (`>=0.1.0a4,<0.2`) is unchanged; published metadata is
+  identical to 0.1.0a7. No public API, parser, serializer, MCP
+  schema, or JSON output changes.
+
+
 ## [0.1.0a7] — 2026-05-15
 
 ### Fixed
