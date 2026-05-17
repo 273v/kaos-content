@@ -52,3 +52,22 @@ class ArtifactTooLargeError(KaosContentError):
     exceed 50 MB), or ``max_bytes=None`` to disable the cap entirely
     when the caller has explicitly thought about the trade-off.
     """
+
+
+class ArtifactMimeTypeError(KaosContentError):
+    """Artifact's mime type is incompatible with the requested loader.
+
+    Raised by :func:`kaos_content.artifacts.load_document` when the
+    artifact's manifest reports a ``mime_type`` that is not a
+    serialized :class:`~kaos_content.model.document.ContentDocument`
+    (i.e. not ``application/json`` / ``application/x-ndjson``). Also
+    raised when the mime type is unknown but the body's first byte
+    is ``<`` — a strong signal of an HTML/XML payload that would
+    otherwise produce an opaque pydantic JSON-decode error.
+
+    The message is agent-friendly: it names the offending mime type
+    and points at the right preparatory tool
+    (``kaos-content-parse-html`` for HTML,
+    ``kaos-content-parse-markdown`` for Markdown/text) so the LLM
+    can self-correct on its next turn instead of guessing.
+    """

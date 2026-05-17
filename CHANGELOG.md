@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`kaos_content.artifacts.load_document()` now rejects non-JSON
+  artifacts up front with an agent-friendly hint instead of leaking a
+  pydantic JSON-decode error.** Previously, passing an HTML artifact
+  (e.g. an unparsed web page) produced `Invalid JSON: expected value
+  at line 2 column 1 [type=jso...` — useless to the LLM and a real
+  source of agent self-loop failures observed in
+  single-user-chat. The library now checks `manifest.mime_type` before
+  validation and rejects anything outside
+  `{"application/json", "application/x-ndjson"}`; when the manifest
+  has no mime hint, a first-byte sniff for `<` catches HTML / XML
+  payloads after the bytes are read. A new
+  `kaos_content.errors.ArtifactMimeTypeError` carries the offending
+  artifact id + mime and the message points at the right preparatory
+  tool (`kaos-content-parse-html` for HTML,
+  `kaos-content-parse-markdown` for Markdown / text) so the agent can
+  self-correct on its next turn. Stage 5.2 of the
+  vfs-blind-tools-audit-and-fix plan. kaos-mcp's resource adapter
+  already guarded at the MCP boundary; this hardens the library
+  itself so in-process callers (kaos-agents tools that call
+  `load_document` directly) get the same protection.
+
 
 ## [0.1.0a8] — 2026-05-16
 

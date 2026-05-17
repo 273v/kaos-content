@@ -13,7 +13,7 @@ from kaos_core import (
     VFSConfig,
     VirtualFileSystem,
 )
-from kaos_core.types.enums import StorageBackend
+from kaos_core.types.enums import ArtifactRole, StorageBackend
 
 from kaos_content import (
     ContentDocument,
@@ -36,6 +36,7 @@ from kaos_content.artifacts import (
     store_document,
     unique_document_name,
 )
+from kaos_content.errors import ArtifactMimeTypeError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -309,6 +310,105 @@ async def test_parsed_markdown_store_load_roundtrip(tmp_path: Path) -> None:
     for orig, loaded_h in zip(original_outline, loaded_outline, strict=True):
         assert orig["depth"] == loaded_h["depth"]
         assert orig["text"] == loaded_h["text"]
+
+
+# ---------------------------------------------------------------------------
+# Mime-type guard (Stage 5.2 of vfs-blind-tools-audit-and-fix-plan)
+# ---------------------------------------------------------------------------
+
+
+async def _write_artifact(
+    runtime: KaosRuntime,
+    context: KaosContext,
+    *,
+    vfs_path: str,
+    payload: bytes,
+    name: str,
+    mime_type: str | None,
+) -> str:
+    """Write raw bytes to the VFS and register an artifact. Returns artifact_id."""
+    ctx_path = context.get_vfs_path(vfs_path)
+    await ctx_path.write_bytes(payload)
+    manifest = await runtime.artifacts.create_from_path(
+        vfs_path,
+        context_id=context.session_id,
+        session_id=context.session_id,
+        name=name,
+        description=f"raw artifact ({mime_type})",
+        mime_type=mime_type,
+        role=ArtifactRole.BODY,
+    )
+    return manifest.artifact_id
+
+
+async def test_load_document_rejects_html_mime(tmp_path: Path) -> None:
+    """An HTML artifact should raise ArtifactMimeTypeError with parse-html hint."""
+    runtime = _make_runtime(tmp_path)
+    context = KaosContext.create(session_id="test", runtime=runtime)
+
+    artifact_id = await _write_artifact(
+        runtime,
+        context,
+        vfs_path="raw/page.html",
+        payload=b"<!DOCTYPE html>\n<html><body><p>hi</p></body></html>",
+        name="page",
+        mime_type="text/html",
+    )
+
+    with pytest.raises(ArtifactMimeTypeError) as exc_info:
+        await load_document(artifact_id, runtime)
+
+    msg = str(exc_info.value)
+    assert "text/html" in msg
+    assert "kaos-content-parse-html" in msg
+    # Structured details for middleware / agent error formatters.
+    assert exc_info.value.details.get("mime_type") == "text/html"
+    assert exc_info.value.details.get("artifact_id") == artifact_id
+
+
+async def test_load_document_rejects_html_when_mime_missing(tmp_path: Path) -> None:
+    """No mime + body starting with '<' should raise with the same hint."""
+    runtime = _make_runtime(tmp_path)
+    context = KaosContext.create(session_id="test", runtime=runtime)
+
+    artifact_id = await _write_artifact(
+        runtime,
+        context,
+        vfs_path="raw/untyped.bin",
+        payload=b"  \n<html><body>no mime declared</body></html>",
+        name="untyped",
+        mime_type=None,
+    )
+
+    # `create_from_path` populates mime_type from VFS stat when None is
+    # passed. If the disk backend infers a mime from the extension the
+    # manifest-mime branch would fire first (covered by the previous
+    # test); clear it explicitly to exercise the first-byte sniff.
+    manifest = runtime.artifacts.get(artifact_id)
+    manifest.mime_type = None
+
+    with pytest.raises(ArtifactMimeTypeError) as exc_info:
+        await load_document(artifact_id, runtime)
+
+    msg = str(exc_info.value)
+    assert "kaos-content-parse-html" in msg
+    assert "starts with '<'" in msg
+    assert exc_info.value.details.get("mime_type") is None
+
+
+async def test_load_document_accepts_valid_json_artifact(tmp_path: Path) -> None:
+    """Regression: valid ContentDocument JSON artifacts must still load cleanly."""
+    runtime = _make_runtime(tmp_path)
+    context = KaosContext.create(session_id="test", runtime=runtime)
+
+    doc = _sample_document()
+    manifest = await store_document(doc, runtime, context, name="guard-regression")
+    # store_document writes application/json; guard must let it through.
+    assert manifest.mime_type == "application/json"
+
+    loaded = await load_document(manifest.artifact_id, runtime)
+    assert loaded.metadata.title == "Test Document"
+    assert len(loaded.body) == len(doc.body)
 
 
 # ---------------------------------------------------------------------------

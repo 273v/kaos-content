@@ -25,13 +25,23 @@ from kaos_content.artifacts import (
 from kaos_content.errors import ArtifactTooLargeError
 
 
-def _mock_runtime(*, manifest_size: int, payload: str) -> MagicMock:
+def _mock_runtime(
+    *,
+    manifest_size: int,
+    payload: str,
+    mime_type: str | None = "application/json",
+) -> MagicMock:
     """Build a runtime stub with an artifact store that returns a
     manifest with ``manifest_size`` and a body of ``payload``.
+
+    ``mime_type`` defaults to ``application/json`` so the Stage 5.2
+    mime guard in :func:`load_document` is satisfied; tests that
+    want to exercise the guard pass an explicit mime.
     """
     runtime = MagicMock()
     manifest = MagicMock()
     manifest.size = manifest_size
+    manifest.mime_type = mime_type
     runtime.artifacts.get = MagicMock(return_value=manifest)
     runtime.artifacts.read_text = AsyncMock(return_value=payload)
     return runtime
@@ -78,8 +88,9 @@ class TestLoadDocumentSizeCap:
         runtime = _mock_runtime(manifest_size=1024 * 1024 * 1024, payload=_MIN_DOC_JSON)
         doc = await load_document("artifact-id", runtime, max_bytes=None)
         assert doc is not None
-        # Manifest is NOT consulted when max_bytes=None.
-        runtime.artifacts.get.assert_not_called()
+        # Manifest IS still consulted for the Stage 5.2 mime guard,
+        # even though the size cap is opted out.
+        runtime.artifacts.get.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_default_max_bytes_constant(self) -> None:
