@@ -14,7 +14,7 @@ from kaos_core.artifacts.models import (
 )
 from kaos_core.types.enums import ArtifactRetentionPolicy, ArtifactRole
 
-from kaos_content.errors import ArtifactTooLargeError
+from kaos_content.errors import ArtifactMimeTypeError, ArtifactTooLargeError
 
 if TYPE_CHECKING:
     from kaos_core.base.context import KaosContext
@@ -31,6 +31,17 @@ if TYPE_CHECKING:
 # can exceed 50 MB) should pass an explicit ``max_bytes=...`` or
 # ``max_bytes=None`` to opt out of the cap.
 DEFAULT_LOAD_MAX_BYTES: int = 16 * 1024 * 1024
+
+# Mime types ``load_document`` will accept. A stored ``ContentDocument``
+# is always JSON (``store_document(format="json")`` writes
+# ``application/json``); ``application/x-ndjson`` is included so future
+# line-delimited variants don't have to special-case the guard. ``None``
+# (manifest had no recorded mime) is allowed because legacy artifacts
+# may be untyped — those fall through to a first-byte sniff after the
+# body is read.
+_LOAD_DOCUMENT_ACCEPTED_MIMES: frozenset[str] = frozenset(
+    {"application/json", "application/x-ndjson"}
+)
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +142,16 @@ async def load_document(
     a multi-gigabyte artifact would force a full read followed by JSON
     + Pydantic validation, OOMing the process.
 
+    Stage 5.2 (vfs-blind-tools-audit-and-fix-plan) added a mime-type
+    guard so an HTML / XML / Markdown artifact accidentally passed
+    in (e.g. when an agent skips ``kaos-content-parse-html``) raises
+    an :class:`ArtifactMimeTypeError` with a fix hint instead of an
+    opaque ``Invalid JSON: expected value at line 2 column 1``
+    pydantic decode error. kaos-mcp's resource adapter already
+    guarded at the MCP boundary; this hardens the library so
+    in-process callers (kaos-agents tools that call ``load_document``
+    directly) get the same protection.
+
     Args:
         artifact_ref: ArtifactRef or artifact id string to load.
         runtime: kaos-core runtime providing the artifact store.
@@ -142,6 +163,10 @@ async def load_document(
     Raises:
         ArtifactTooLargeError: If the artifact's manifest reports a
             size larger than ``max_bytes``.
+        ArtifactMimeTypeError: If the artifact's manifest reports a
+            mime type other than ``application/json`` /
+            ``application/x-ndjson``, or if the mime is unknown but
+            the body's first non-whitespace byte is ``<``.
 
     NOTE: A second OOM vector remains in
     :meth:`ContentDocument.model_validate_json` itself — a maliciously
@@ -153,8 +178,26 @@ async def load_document(
     from kaos_content.model.document import ContentDocument
 
     artifact_id = artifact_ref if isinstance(artifact_ref, str) else artifact_ref.artifact_id
+
+    # Always resolve the manifest — both the size cap and the mime
+    # guard need it, and a missing artifact should fail fast with the
+    # canonical kaos-core ``ResourceError`` rather than after a read.
+    manifest = runtime.artifacts.get(artifact_id)
+
+    mime = getattr(manifest, "mime_type", None)
+    if mime is not None and mime not in _LOAD_DOCUMENT_ACCEPTED_MIMES:
+        raise ArtifactMimeTypeError(
+            f"Artifact {artifact_id} is mime={mime}; load_document requires a "
+            "serialized ContentDocument (JSON). "
+            "How to fix: if this is an HTML artifact, call kaos-content-parse-html "
+            "first to get a ContentDocument artifact; if it's a Markdown / text "
+            "artifact, call kaos-content-parse-markdown. "
+            "Alternative: read the raw bytes with kaos-core-artifact-read.",
+            artifact_id=artifact_id,
+            mime_type=mime,
+        )
+
     if max_bytes is not None:
-        manifest = runtime.artifacts.get(artifact_id)
         size = getattr(manifest, "size", None)
         if size is not None and size > max_bytes:
             raise ArtifactTooLargeError(
@@ -169,6 +212,27 @@ async def load_document(
                 ),
             )
     text = await runtime.artifacts.read_text(artifact_id)
+
+    # Sniff for HTML/XML when the manifest carried no mime hint. Cheap
+    # — we already paid for the read, and a leading ``<`` after
+    # whitespace is a near-certain signal of a tag-based payload that
+    # ``model_validate_json`` would reject with an opaque error.
+    if mime is None:
+        stripped = text.lstrip()
+        if stripped.startswith("<"):
+            raise ArtifactMimeTypeError(
+                f"Artifact {artifact_id} has no mime_type and starts with '<' "
+                "(likely HTML/XML); load_document requires a serialized "
+                "ContentDocument (JSON). "
+                "How to fix: if this is an HTML artifact, call "
+                "kaos-content-parse-html first to get a ContentDocument "
+                "artifact; if it's a Markdown / text artifact, call "
+                "kaos-content-parse-markdown. "
+                "Alternative: read the raw bytes with kaos-core-artifact-read.",
+                artifact_id=artifact_id,
+                mime_type=None,
+            )
+
     return ContentDocument.model_validate_json(text)
 
 
