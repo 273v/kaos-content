@@ -130,17 +130,43 @@ class DocumentBuilder:
 
     # ── Block construction (flat) ──
 
-    def heading(self, depth: int, text: str, **attr_kv: str) -> Self:
-        """Add a heading block."""
+    def heading(
+        self,
+        depth: int,
+        text: str,
+        *,
+        numbering_label: str | None = None,
+        **attr_kv: str,
+    ) -> Self:
+        """Add a heading block.
+
+        ``numbering_label`` carries the rendered numbering label from the
+        source document (e.g. ``"11."`` for ``Section 11. GOVERNING LAW``).
+        See :attr:`kaos_content.model.blocks.Heading.numbering_label`.
+        """
         attr = Attr(kv=attr_kv) if attr_kv else Attr()
-        node = Heading(depth=depth, children=(Text(value=text),), attr=attr)
+        node = Heading(
+            depth=depth,
+            children=(Text(value=text),),
+            attr=attr,
+            numbering_label=numbering_label,
+        )
         self._append_block(node)
         return self
 
-    def paragraph(self, *inlines: Inline | str) -> Self:
-        """Add a paragraph. String arguments are auto-wrapped as Text nodes."""
+    def paragraph(
+        self,
+        *inlines: Inline | str,
+        numbering_label: str | None = None,
+    ) -> Self:
+        """Add a paragraph. String arguments are auto-wrapped as Text nodes.
+
+        ``numbering_label`` carries the rendered numbering label from the
+        source document. See
+        :attr:`kaos_content.model.blocks.Paragraph.numbering_label`.
+        """
         children = tuple(_coerce_inline(i) for i in inlines)
-        node = Paragraph(children=children)
+        node = Paragraph(children=children, numbering_label=numbering_label)
         self._append_block(node)
         return self
 
@@ -261,9 +287,21 @@ class DocumentBuilder:
         self._stack.append(_StackFrame(kind, start=start))
         return self
 
-    def begin_list_item(self, checked: bool | None = None) -> Self:
-        """Start a list item. Call ``end()`` to close it."""
-        self._stack.append(_StackFrame("list_item", checked=checked))
+    def begin_list_item(
+        self,
+        checked: bool | None = None,
+        *,
+        numbering_label: str | None = None,
+    ) -> Self:
+        """Start a list item. Call ``end()`` to close it.
+
+        ``numbering_label`` carries the rendered numbering label from the
+        source document. See
+        :attr:`kaos_content.model.blocks.ListItem.numbering_label`.
+        """
+        self._stack.append(
+            _StackFrame("list_item", checked=checked, numbering_label=numbering_label)
+        )
         return self
 
     def begin_div(
@@ -315,7 +353,11 @@ class DocumentBuilder:
         elif frame.kind == "bullet_list":
             node = BulletList(children=cast("tuple[ListItem, ...]", children))
         elif frame.kind == "list_item":
-            node = ListItem(children=children, checked=frame.checked)
+            node = ListItem(
+                children=children,
+                checked=frame.checked,
+                numbering_label=frame.numbering_label,
+            )
         elif frame.kind == "div":
             if frame.attr_kv or frame.attr_classes:
                 attr = Attr(classes=frame.attr_classes, kv=frame.attr_kv)
@@ -501,6 +543,7 @@ class _StackFrame:
         "caption_text",
         "checked",
         "kind",
+        "numbering_label",
         "start",
     )
 
@@ -513,6 +556,7 @@ class _StackFrame:
         attr_kv: dict[str, str] | None = None,
         attr_classes: tuple[str, ...] = (),
         caption_text: str | None = None,
+        numbering_label: str | None = None,
     ) -> None:
         self.kind = kind
         self.blocks: list[Block] = []
@@ -521,6 +565,7 @@ class _StackFrame:
         self.attr_kv = attr_kv or {}
         self.attr_classes = attr_classes
         self.caption_text = caption_text
+        self.numbering_label = numbering_label
 
 
 def _coerce_inline(value: Inline | str) -> Inline:

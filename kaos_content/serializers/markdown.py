@@ -260,11 +260,17 @@ class _SerializerContext:
 
     def _render_paragraph(self, para: Any, indent: str, ref: str = "") -> str:
         inlines = self._render_inlines(para.children, ref_prefix=ref)
+        label = getattr(para, "numbering_label", None)
+        if label:
+            return f"{indent}{label} {inlines}"
         return f"{indent}{inlines}"
 
     def _render_heading(self, heading: Any, indent: str, ref: str = "") -> str:
         prefix = "#" * heading.depth
         inlines = self._render_inlines(heading.children, ref_prefix=ref)
+        label = getattr(heading, "numbering_label", None)
+        if label:
+            return f"{indent}{prefix} {label} {inlines}"
         return f"{indent}{prefix} {inlines}"
 
     def _render_blockquote(self, bq: Any, indent: str, ref: str = "") -> str:
@@ -276,7 +282,13 @@ class _SerializerContext:
         items: list[str] = []
         for i, item in enumerate(bl.children):
             child_ref = f"{ref}/children/{i}" if ref else ""
-            rendered = self._render_list_item(item, indent, marker="- ", ref=child_ref)
+            label = getattr(item, "numbering_label", None)
+            # A bullet list whose items each carry a rendered label
+            # came from a numbered Word list misidentified as a bullet
+            # list (e.g. an unrecognized numFmt). Emit the label
+            # verbatim so attorney citations survive the round trip.
+            marker = f"{label} " if label else "- "
+            rendered = self._render_list_item(item, indent, marker=marker, ref=child_ref)
             items.append(rendered)
         return "\n".join(items)
 
@@ -287,9 +299,17 @@ class _SerializerContext:
         last_num = start + len(ol.children) - 1
         marker_width = len(f"{last_num}. ")
         for i, item in enumerate(ol.children):
-            num = start + i
-            marker = f"{num}. ".ljust(marker_width)
             child_ref = f"{ref}/children/{i}" if ref else ""
+            label = getattr(item, "numbering_label", None)
+            if label:
+                # Rendered Word numeral wins outright — preserves
+                # "Section 11(a)(i)" instead of resequencing to
+                # "1.". Width-aligned to the longest label so wrapped
+                # continuation indents still align.
+                marker = f"{label} "
+            else:
+                num = start + i
+                marker = f"{num}. ".ljust(marker_width)
             rendered = self._render_list_item(item, indent, marker=marker, ref=child_ref)
             items.append(rendered)
         return "\n".join(items)

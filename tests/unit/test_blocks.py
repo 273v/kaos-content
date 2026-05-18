@@ -155,6 +155,89 @@ class TestLists:
         assert len(bl.children) == 1
 
 
+class TestNumberingLabel:
+    """``numbering_label`` carries the rendered visible numeral from
+    source documents — required for attorney-grade citation when the
+    DOCX numbers sections like ``Section 11(a)(i)``.
+    """
+
+    def test_paragraph_default_none(self) -> None:
+        p = Paragraph(children=(Text(value="x"),))
+        assert p.numbering_label is None
+
+    def test_paragraph_set(self) -> None:
+        p = Paragraph(children=(Text(value="GOVERNING LAW. ..."),), numbering_label="11.")
+        assert p.numbering_label == "11."
+
+    def test_heading_default_none(self) -> None:
+        h = Heading(depth=2, children=(Text(value="Title"),))
+        assert h.numbering_label is None
+
+    def test_heading_set(self) -> None:
+        h = Heading(
+            depth=2,
+            children=(Text(value="GOVERNING LAW"),),
+            numbering_label="Section 11.",
+        )
+        assert h.numbering_label == "Section 11."
+
+    def test_list_item_default_none(self) -> None:
+        item = ListItem(children=(Paragraph(children=(Text(value="x"),)),))
+        assert item.numbering_label is None
+
+    def test_list_item_set(self) -> None:
+        item = ListItem(
+            children=(Paragraph(children=(Text(value="..."),)),),
+            numbering_label="(a)",
+        )
+        assert item.numbering_label == "(a)"
+
+    def test_round_trip_json_paragraph(self) -> None:
+        p = Paragraph(children=(Text(value="..."),), numbering_label="11(a)(i)")
+        restored = Paragraph.model_validate_json(p.model_dump_json())
+        assert restored.numbering_label == "11(a)(i)"
+
+    def test_round_trip_json_heading(self) -> None:
+        h = Heading(depth=1, children=(Text(value="..."),), numbering_label="Article I.")
+        restored = Heading.model_validate_json(h.model_dump_json())
+        assert restored.numbering_label == "Article I."
+
+    def test_round_trip_json_list_item(self) -> None:
+        item = ListItem(
+            children=(Paragraph(children=(Text(value="..."),)),),
+            numbering_label="(ii)",
+        )
+        restored = ListItem.model_validate_json(item.model_dump_json())
+        assert restored.numbering_label == "(ii)"
+
+    def test_round_trip_dict_preserves_label(self) -> None:
+        item = ListItem(
+            children=(Paragraph(children=(Text(value="..."),)),),
+            numbering_label="(a)",
+        )
+        restored = ListItem.model_validate(item.model_dump())
+        assert restored.numbering_label == "(a)"
+
+    def test_legacy_dict_without_field_validates(self) -> None:
+        """Documents serialized before this field was added must still load."""
+        legacy = {
+            "node_type": "list_item",
+            "children": (
+                {
+                    "node_type": "paragraph",
+                    "children": ({"node_type": "text", "value": "..."},),
+                },
+            ),
+        }
+        item = ListItem.model_validate(legacy)
+        assert item.numbering_label is None
+
+    def test_frozen_label(self) -> None:
+        p = Paragraph(children=(Text(value="x"),), numbering_label="1.")
+        with pytest.raises(ValidationError):
+            p.numbering_label = "2."
+
+
 class TestDefinitionList:
     def test_basic(self) -> None:
         dl = DefinitionList(
