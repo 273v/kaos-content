@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   remain excluded by design (dev infra / application lockfile).
   `check-manifest` now passes; the hatch sdist include-list remains the
   source of truth.
+- **Private NDA integration tests now look at `$KAOS_CONTENT_NDA_DIR`
+  instead of a maintainer-local default path.** `tests/integration/
+  test_summary_real_ndas.py`, `test_corpus_tools_real_ndas.py`, and
+  `test_entity_filters_real_ndas.py` previously hard-coded
+  `~/projects/273v/kelvin-app/samples/docx/`. Without the corpus the
+  suites already skipped, but the path-as-default leaked the
+  maintainer's layout into the public sdist. The env var lets external
+  contributors point at any directory of `MNDA*.docx` files; absent
+  the env var the tests skip with a self-explanatory reason. Also
+  removed an absolute local path from `docs/SEARCHABLE_CORPUS.md`.
 
 ### Fixed
 

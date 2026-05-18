@@ -258,10 +258,9 @@ index on load. Defer to a follow-up.
 
 ## 5. Test Plan
 
-All under
-`/home/mjbommar/projects/273v/kaos-content/tests/unit/test_searchable_corpus.py`
-unless noted. Mark dense / hybrid suites with the existing skipif
-guards (`_has_nlp`, `_has_transformers`).
+All under `tests/unit/test_searchable_corpus.py` unless noted. Mark
+dense / hybrid suites with the existing skipif guards (`_has_nlp`,
+`_has_transformers`).
 
 | File | Test | Asserts |
 |---|---|---|
