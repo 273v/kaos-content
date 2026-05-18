@@ -24,6 +24,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   See `kaos-modules/docs/plans/docx-numbering-resolution.md` for the
   full design.
 
+### Changed
+
+- **All three core serializers (`serialize_text`,
+  `serialize_markdown`, `serialize_html`) honor
+  `numbering_label`.** When set on `Paragraph`, `Heading`, or
+  `ListItem`, the rendered label is prepended verbatim to the
+  block's body:
+  - text / markdown: `"11. GOVERNING LAW. ..."`,
+    `"## Section 11. GOVERNING LAW"`,
+    `"(a) Subject to..."`.
+  - markdown ordered / bullet lists: the per-item label replaces the
+    position-based marker. Items without a label keep position-based
+    numbering (back-compatible for AST-constructed documents).
+  - HTML: the label is emitted both as a `data-numbering-label="..."`
+    attribute and as inline visible text on the `<p>` / `<h*>` /
+    `<li>`. Labels are HTML-escaped so they cannot be an injection
+    vector. The inline text is required because default CSS does not
+    surface the data-attribute — without it an attorney's
+    "Section 11(a)(i)" citation diverges from the rendered page.
+
+Stage 4 of
+`kaos-modules/docs/plans/docx-numbering-resolution.md`. New test
+suite `tests/unit/test_serializer_numbering_label.py` locks the
+emission shape across all three formats and asserts the XSS-safe
+escape on HTML.
+
 ## [0.1.0a11] — 2026-05-18
 
 ### Added

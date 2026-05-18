@@ -100,10 +100,17 @@ class _TextContext:
         nt = block.node_type
 
         if nt == "paragraph":
-            return indent + self._render_inlines(block.children)
+            body = self._render_inlines(block.children)
+            label = getattr(block, "numbering_label", None)
+            if label:
+                return f"{indent}{label} {body}"
+            return indent + body
 
         if nt == "heading":
             text = self._render_inlines(block.children)
+            label = getattr(block, "numbering_label", None)
+            if label:
+                return f"{indent}{label} {text}{self._heading_sep}"
             return indent + text + self._heading_sep
 
         if nt == "blockquote":
@@ -173,7 +180,19 @@ class _TextContext:
     ) -> str:
         parts: list[str] = []
         for i, item in enumerate(items):
-            marker = f"{start + i}. " if ordered else "- "
+            # When the item carries a rendered ``numbering_label`` (a
+            # DOCX-sourced visible numeral like ``"11."`` or
+            # ``"(a)"``), emit it verbatim. Falling back to a
+            # position-based marker silently rewrites attorney-citable
+            # numerals — see
+            # kaos-modules/docs/plans/docx-numbering-resolution.md.
+            label = getattr(item, "numbering_label", None)
+            if label:
+                marker = f"{label} "
+            elif ordered:
+                marker = f"{start + i}. "
+            else:
+                marker = "- "
             checked = getattr(item, "checked", None)
             prefix = ""
             if checked is True:

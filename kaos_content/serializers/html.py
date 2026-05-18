@@ -160,11 +160,19 @@ class _HtmlContext:
 
         if nt == "paragraph":
             inner = self._render_inlines(block.children, ref_prefix=ref)
+            label = getattr(block, "numbering_label", None)
+            if label:
+                label_attr = f' data-numbering-label="{html_lib.escape(label)}"'
+                return f"<p{label_attr}{prov}>{html_lib.escape(label)} {inner}</p>"
             return f"<p{prov}>{inner}</p>"
 
         if nt == "heading":
             d = block.depth
             inner = self._render_inlines(block.children, ref_prefix=ref)
+            label = getattr(block, "numbering_label", None)
+            if label:
+                label_attr = f' data-numbering-label="{html_lib.escape(label)}"'
+                return f"<h{d}{label_attr}{prov}>{html_lib.escape(label)} {inner}</h{d}>"
             return f"<h{d}{prov}>{inner}</h{d}>"
 
         if nt == "blockquote":
@@ -260,19 +268,33 @@ class _HtmlContext:
 
         prov = self._prov_attrs(item)
         checked = getattr(item, "checked", None)
+        label = getattr(item, "numbering_label", None)
 
         inner = self._render_block_children(item.children, ref)
 
+        # Surface the rendered numbering label both as a
+        # data-attribute (for CSS / agent consumers) and as inline
+        # text (so a ``view-source`` of the page reads the way the
+        # DOCX did). Without the inline text, the default
+        # ``list-style-type: decimal`` re-numbers the items and the
+        # attorney's "Section 11(a)(i)" citation diverges from what
+        # the page renders.
+        label_attr = f' data-numbering-label="{html_lib.escape(label)}"' if label else ""
+        label_prefix = f"{html_lib.escape(label)} " if label else ""
+
         if checked is True:
             return (
-                f'<li class="task-list-item"{prov}>'
+                f'<li class="task-list-item"{label_attr}{prov}>'
+                f"{label_prefix}"
                 f'<input type="checkbox" checked disabled /> {inner}</li>'
             )
         if checked is False:
             return (
-                f'<li class="task-list-item"{prov}><input type="checkbox" disabled /> {inner}</li>'
+                f'<li class="task-list-item"{label_attr}{prov}>'
+                f"{label_prefix}"
+                f'<input type="checkbox" disabled /> {inner}</li>'
             )
-        return f"<li{prov}>{inner}</li>"
+        return f"<li{label_attr}{prov}>{label_prefix}{inner}</li>"
 
     def _render_definition_list(self, dl: Any, ref: str, prov: str) -> str:
         parts: list[str] = [f"<dl{prov}>"]
