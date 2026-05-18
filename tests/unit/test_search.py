@@ -138,6 +138,63 @@ class TestSearchDocumentTF:
         assert hit.section_title == "Subsection 1.1.1"
         assert hit.heading_path == ("Chapter 1", "Section 1.1")
 
+    def test_path_full_breadcrumb_nested(self, nested_section_doc: ContentDocument) -> None:
+        """``path`` is the full chain INCLUDING the immediate section."""
+        results = search_document(nested_section_doc, "alpaca-cardamom-zircon")
+        assert results.results
+        hit = results.results[0]
+        # heading_path is ancestors only; path includes the section itself.
+        assert hit.path == ("Chapter 1", "Section 1.1", "Subsection 1.1.1")
+        # And reduces to heading_path + section_title.
+        assert hit.path == (*hit.heading_path, hit.section_title)
+
+    def test_path_full_breadcrumb_tf_fallback(self, nested_section_doc: ContentDocument) -> None:
+        """The no-kaos-nlp-core fallback obeys the same path contract."""
+        from kaos_content import search as search_mod
+
+        results = search_mod._search_tf(
+            nested_section_doc,
+            "alpaca-cardamom-zircon",
+            top_k=10,
+            preview_length=200,
+        )
+        assert results.results
+        hit = results.results[0]
+        assert hit.heading_path == ("Chapter 1", "Section 1.1")
+        assert hit.section_title == "Subsection 1.1.1"
+        assert hit.path == ("Chapter 1", "Section 1.1", "Subsection 1.1.1")
+
+    def test_path_top_level_section(self, multi_section_doc: ContentDocument) -> None:
+        results = search_document(multi_section_doc, "breach")
+        breach_results = [r for r in results.results if "breach" in r.text.lower()]
+        assert breach_results
+        # h1 only → path is just the section's heading text.
+        assert breach_results[0].path == ("Remedies",)
+
+    def test_path_empty_when_no_section(self, multi_section_doc: ContentDocument) -> None:
+        """A hit inside a preamble (no enclosing heading) has empty path —
+        the contract that downstream agents must not invent identifiers.
+        """
+        # Build a doc with a paragraph BEFORE any heading; that hit's path
+        # must be empty.
+        from kaos_content import Heading, Paragraph, Text
+        from kaos_content.model.document import ContentDocument
+        from kaos_content.model.metadata import DocumentMetadata
+
+        doc = ContentDocument(
+            metadata=DocumentMetadata(),
+            body=(
+                Paragraph(children=(Text(value="preamble fact"),)),
+                Heading(depth=1, children=(Text(value="Body"),)),
+                Paragraph(children=(Text(value="under heading"),)),
+            ),
+        )
+        results = search_document(doc, "preamble")
+        preamble_hits = [r for r in results.results if "preamble" in r.text.lower()]
+        assert preamble_hits
+        assert preamble_hits[0].path == ()
+        assert preamble_hits[0].section_title is None
+
     def test_empty_query_raises(self, multi_section_doc: ContentDocument) -> None:
         with pytest.raises(ValueError, match="empty"):
             search_document(multi_section_doc, "")
@@ -199,6 +256,31 @@ class TestSearchDocumentBM25:
         assert results.results
         hit = results.results[0]
         assert hit.heading_path == ("Chapter 1", "Section 1.1")
+
+    def test_path_bm25_nested(self, nested_section_doc: ContentDocument) -> None:
+        """``path`` (full breadcrumb) survives the BM25 round-trip."""
+        results = search_document(nested_section_doc, "alpaca-cardamom-zircon", level="paragraph")
+        assert results.results
+        hit = results.results[0]
+        assert hit.path == ("Chapter 1", "Section 1.1", "Subsection 1.1.1")
+
+    def test_path_consistent_with_view_block_path(
+        self, nested_section_doc: ContentDocument
+    ) -> None:
+        """SearchResult.path must equal DocumentView.block_path(block_ref).
+
+        This is the structural-anchor contract: the same block has the
+        same breadcrumb whichever surface produced it. Without this,
+        agents would see drift between the search tool and the
+        context-window tool.
+        """
+        from kaos_content.views import DocumentView
+
+        results = search_document(nested_section_doc, "alpaca-cardamom-zircon", level="paragraph")
+        assert results.results
+        hit = results.results[0]
+        view = DocumentView(nested_section_doc)
+        assert hit.path == view.block_path(hit.block_ref)
 
     def test_sentence_search(self, multi_section_doc: ContentDocument) -> None:
         results = search_document(multi_section_doc, "closing date", level="sentence")

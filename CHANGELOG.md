@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`SearchResult.path` is now populated by `search_tabular()` and
+  forwarded by `search_corpus()`.** The 0.1.0a11 release introduced the
+  canonical `path` breadcrumb but `search_tabular()` set
+  `section_title` while leaving `path=()`, and `search_corpus()` only
+  forwarded `heading_path` / `section_title` to its
+  `RetrievalResult.metadata`. Empty `path` is the documented contract
+  for "no structural identifier available", so downstream agents
+  refused to cite the column / section even though the data was
+  present. `search_tabular()` now sets
+  `path=(section_title,)`, `search_corpus()` includes `path` in its
+  metadata dict, and the `kaos-content-search-tabular` MCP tool's JSON
+  output gains `path: list[str]` to match
+  `kaos-content-search-document`.
+
+## [0.1.0a11] — 2026-05-18
+
+### Added
+
+- **`DocumentView.block_path(block_ref) -> tuple[str, ...]`** — public
+  method returning the chain of enclosing heading texts for a block,
+  root-first and INCLUDING the nearest containing section's heading
+  text. Empty tuple is the explicit "no enclosing heading" contract
+  (preamble, no-headings document, or unknown ref) and downstream
+  agents must NOT invent section identifiers for blocks with empty
+  path. Solves the "agent fabricates section numbers" failure mode
+  observed in the kaos-ui SPA 2026-05-18 persona matrix where every
+  numeric "Section N" claim was confidently wrong despite verbatim
+  clause text being correct. See
+  `kaos-modules/docs/plans/persona-matrix-followups.md` §4.
+- **`SearchResult.path: tuple[str, ...]`** — new field on every search
+  hit carrying the full structural breadcrumb (root-first, INCLUDING
+  the immediate section). Equivalent to
+  `heading_path + (section_title,)` when `section_title` is set,
+  `heading_path` otherwise. Hits in document preamble have empty
+  `path`. The `path` value is identical to
+  `DocumentView.block_path(hit.block_ref)` — search and view share one
+  structural truth. Existing `heading_path` (ancestors only) and
+  `section_title` (immediate section) fields are unchanged and remain
+  the documented surface for callers that want them separately.
+- **`kaos-content-search-document` MCP tool result dicts** now include
+  `path: list[str]` per hit alongside the existing `block_ref` / `page`
+  / `section_ref` / `section_title` fields. Empty list signals no
+  enclosing heading.
+- **`kaos-content-context-window` MCP tool result** now includes a
+  top-level `path: list[str]` describing the section the target block
+  lives in. Empty list signals no enclosing heading.
+
 ## [0.1.0a10] — 2026-05-17
 
 ### Changed

@@ -299,6 +299,9 @@ class SearchableDocument:
                 text = text[:preview_length] + "..."
 
             sec_ref = hit.metadata.get("section_ref")
+            section_title = self._section_titles.get(sec_ref) if sec_ref else None
+            ancestors = self._heading_paths.get(sec_ref, ()) if sec_ref else ()
+            full_path = (*ancestors, section_title) if section_title else ancestors
             scored.append(
                 SearchResult(
                     text=text,
@@ -306,10 +309,11 @@ class SearchableDocument:
                     block_ref=hit.external_id or "",
                     page=hit.metadata.get("page"),
                     section_ref=sec_ref,
-                    section_title=(self._section_titles.get(sec_ref) if sec_ref else None),
+                    section_title=section_title,
                     char_start=hit.metadata.get("char_start"),
                     char_end=hit.metadata.get("char_end"),
-                    heading_path=self._heading_paths.get(sec_ref, ()) if sec_ref else (),
+                    heading_path=ancestors,
+                    path=full_path,
                 )
             )
 
@@ -795,11 +799,12 @@ class SearchableCorpus:
             sec_ref = hit.metadata.get("section_ref")
             doc_index = hit.metadata.get("doc_index")
             title: str | None = None
-            path: tuple[str, ...] = ()
+            ancestors: tuple[str, ...] = ()
             if sec_ref and doc_index is not None:
                 section_key: tuple[int, str] = (doc_index, sec_ref)
                 title = self._section_titles.get(section_key)
-                path = self._heading_paths.get(section_key, ())
+                ancestors = self._heading_paths.get(section_key, ())
+            full_path = (*ancestors, title) if title else ancestors
             doc_uri = (
                 doc_uris_list[doc_index]
                 if doc_index is not None and 0 <= doc_index < len(doc_uris_list)
@@ -815,7 +820,8 @@ class SearchableCorpus:
                     section_title=title,
                     char_start=hit.metadata.get("char_start"),
                     char_end=hit.metadata.get("char_end"),
-                    heading_path=path,
+                    heading_path=ancestors,
+                    path=full_path,
                     doc_index=doc_index,
                     doc_uri=doc_uri,
                 )

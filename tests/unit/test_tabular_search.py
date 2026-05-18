@@ -115,3 +115,17 @@ class TestSearchTabular:
     def test_nonexistent_column_returns_empty(self, search_doc: TabularDocument) -> None:
         results = search_tabular(search_doc, "Alice", column="nonexistent")
         assert results.total_matches == 0
+
+    def test_path_matches_section_title(self, search_doc: TabularDocument) -> None:
+        # ``SearchResult.path`` is the canonical citation breadcrumb. For
+        # tabular hits it must equal ``(section_title,)`` since there is
+        # no heading hierarchy above a cell. Regression for the
+        # 0.1.0a11 follow-up where ``search_tabular`` was setting
+        # ``section_title`` but leaving ``path=()`` — that empty tuple
+        # is the contract for "no structural identifier", so an
+        # agent citing the hit would refuse to mention the column.
+        results = search_tabular(search_doc, "Alice")
+        assert results.results, "fixture should have at least one Alice hit"
+        for r in results.results:
+            assert r.section_title is not None
+            assert r.path == (r.section_title,)

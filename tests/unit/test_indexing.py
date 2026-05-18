@@ -107,6 +107,23 @@ class TestSearchableDocumentParagraph:
         assert breach[0].section_ref is not None
         assert breach[0].section_title == "Remedies"
 
+    def test_path_full_breadcrumb_nested(self) -> None:
+        from kaos_content.indexing import SearchableDocument
+
+        doc = ContentDocument(
+            metadata=DocumentMetadata(title="Nested"),
+            body=(
+                _heading("Chapter 1", 1, 1),
+                _heading("Section 1.1", 2, 1),
+                _para("needle clause", 1),
+            ),
+        )
+        sdoc = SearchableDocument(doc, level="paragraph")
+        hit = sdoc.search("needle").results[0]
+        assert hit.heading_path == ("Chapter 1",)
+        assert hit.section_title == "Section 1.1"
+        assert hit.path == ("Chapter 1", "Section 1.1")
+
     def test_no_char_offsets_at_paragraph_level(self, multi_section_doc: ContentDocument) -> None:
         from kaos_content.indexing import SearchableDocument
 
@@ -253,6 +270,38 @@ class TestSearchableDocumentSentence:
 
         assert results
         assert results[0].metadata["passage_uri"].startswith("test.pdf#c")
+
+    async def test_search_corpus_forwards_structural_path(
+        self, multi_section_doc: ContentDocument
+    ) -> None:
+        # Regression for the 0.1.0a11 follow-up: ``search_corpus`` was
+        # forwarding ``heading_path`` / ``section_title`` but dropping
+        # the canonical ``path`` breadcrumb. Downstream retrieval users
+        # then lost the structural citation that ``SearchResult.path``
+        # is the contract for.
+        from kaos_content.indexing import SearchableDocument
+        from kaos_content.model.metadata import DocumentMetadata
+        from kaos_content.search import search_corpus
+
+        doc = multi_section_doc.model_copy(
+            update={"metadata": DocumentMetadata(title="Test Document", source=_source)}
+        )
+        sdoc = SearchableDocument(doc, level="paragraph")
+
+        results = await search_corpus([sdoc], "breach", top_k=2)
+
+        assert results
+        breach = results[0]
+        assert "path" in breach.metadata
+        path = breach.metadata["path"]
+        assert isinstance(path, list)
+        # Cross-check against the same metadata fields ``search_corpus``
+        # already forwards — the rule is path == heading_path + (section_title,)
+        # when section_title is non-empty, else heading_path.
+        heading_path = breach.metadata["heading_path"]
+        section_title = breach.metadata["section_title"]
+        expected = [*heading_path, section_title] if section_title else list(heading_path)
+        assert path == expected
 
 
 @pytest.mark.skipif(not _has_nlp, reason="kaos-nlp-core not installed")

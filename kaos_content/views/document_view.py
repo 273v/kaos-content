@@ -45,6 +45,7 @@ class DocumentView:
         "_index",
         "_pages",
         "_paragraphs",
+        "_section_ancestors",
         "_section_map",
         "_sections",
         "_segmenter",
@@ -69,6 +70,10 @@ class DocumentView:
         self._sentences: tuple[SentenceView, ...] | None = None
         self._section_map: dict[str, SectionView] | None = None
         self._block_to_section: dict[str, str | None] | None = None
+        # Cache for ``block_path``: section_heading_ref → ordered heading-text
+        # chain (root-first, INCLUSIVE of the section itself). Built lazily on
+        # first call to :meth:`block_path`.
+        self._section_ancestors: dict[str, tuple[str, ...]] | None = None
 
     # ── Properties ──
 
@@ -165,6 +170,40 @@ class DocumentView:
             body=tuple(all_blocks),
         )
         return serialize_markdown(temp_doc)
+
+    def block_path(self, block_ref: str) -> tuple[str, ...]:
+        """Structural breadcrumb for a block — the chain of enclosing
+        heading texts from the document root down to (and INCLUDING) the
+        nearest containing section.
+
+        Returns an empty tuple when the document has no headings, when the
+        block lives in the pre-heading preamble, or when ``block_ref`` is
+        not known to the view (no `KeyError` — empty tuple is the explicit
+        "no structural position available" contract).
+
+        Examples for an NDA with one top-level heading ``"11. GOVERNING LAW"``::
+
+            view.block_path("#/body/22") == ("11. GOVERNING LAW",)
+
+        For a nested structure (``"Chapter 1" → "1.1 Background"`` containing
+        the block)::
+
+            view.block_path("#/body/9") == ("Chapter 1", "1.1 Background")
+
+        The chain is empty (``()``) for blocks in the preamble — callers
+        should treat empty path as a contract that section identifiers
+        cannot be cited for this block.
+        """
+        # Trigger section computation (populates _block_to_section).
+        _ = self.sections
+        if self._block_to_section is None:
+            return ()
+        section_heading_ref = self._section_ref_for_block_ref(block_ref)
+        if section_heading_ref is None:
+            return ()
+        if self._section_ancestors is None:
+            self._section_ancestors = self._compute_section_ancestors()
+        return self._section_ancestors.get(section_heading_ref, ())
 
     # ── Paragraphs ──
 
@@ -406,6 +445,18 @@ class DocumentView:
                     self._block_to_section[ref] = sv.heading_ref
             self._map_blocks_to_sections(sv.subsections)
 
+    def _section_ref_for_block_ref(self, block_ref: str) -> str | None:
+        """Return the containing section ref for top-level or descendant refs."""
+        if self._block_to_section is None:
+            return None
+        section_ref = self._block_to_section.get(block_ref)
+        if section_ref is not None or block_ref in self._block_to_section:
+            return section_ref
+        parts = block_ref.split("/")
+        if len(parts) >= 3 and parts[0] == "#" and parts[1] == "body":
+            return self._block_to_section.get(f"#/body/{parts[2]}")
+        return None
+
     def _flatten_sections(
         self,
         sections: tuple[SectionView, ...],
@@ -414,6 +465,33 @@ class DocumentView:
         for s in sections:
             result.append(s)
             self._flatten_sections(s.subsections, result)
+
+    def _compute_section_ancestors(self) -> dict[str, tuple[str, ...]]:
+        """Build ``heading_ref → (root_text, ..., own_text)`` mapping.
+
+        Each entry's chain is root-first and INCLUDES the section's own
+        heading text as the final element. Used by :meth:`block_path`.
+        Preamble sections (``heading_ref is None``) are skipped — their
+        contained blocks return an empty path.
+        """
+        out: dict[str, tuple[str, ...]] = {}
+
+        def _walk(
+            sections: tuple[SectionView, ...],
+            ancestors: tuple[str, ...],
+        ) -> None:
+            for sec in sections:
+                if sec.heading_ref is None:
+                    # Preamble — recurse without recording; subsections
+                    # of a preamble section keep the same ancestor chain.
+                    _walk(sec.subsections, ancestors)
+                    continue
+                own_chain = (*ancestors, sec.heading_text or "")
+                out[sec.heading_ref] = own_chain
+                _walk(sec.subsections, own_chain)
+
+        _walk(self.sections, ())
+        return out
 
     def collect_section_blocks(self, sv: SectionView) -> list[Block]:
         """Collect all blocks from a section and its subsections."""
@@ -454,9 +532,7 @@ class DocumentView:
                 # OCR confidence on scanned PDFs) into the paragraph view
                 # so retrieval can refuse to cite low-quality passages.
                 confidence = block.provenance.confidence if block.provenance else None
-                section_ref = (
-                    self._block_to_section.get(ref) if self._block_to_section is not None else None
-                )
+                section_ref = self._section_ref_for_block_ref(ref)
                 result.append(
                     ParagraphView(
                         block_ref=ref,

@@ -526,6 +526,7 @@ class TestSearchDocumentTool:
         assert "text" in first
         assert "score" in first
         assert "block_ref" in first
+        assert first["path"] == ["Introduction", "Background"]
 
     async def test_search_no_results(self, tmp_path: Path) -> None:
         runtime = _make_runtime(tmp_path)
@@ -576,6 +577,12 @@ class TestSearchTableTool:
         data = result.require_structured()
         assert data["total_matches"] >= 1
         assert "has_more" in data
+        # Tool JSON must carry the canonical ``path`` breadcrumb so agents
+        # can cite the column without inventing a structural identifier.
+        # Regression for 0.1.0a11 follow-up where ``path`` was omitted.
+        first = data["results"][0]
+        assert "path" in first
+        assert first["path"] == [first["section_title"]]
 
     async def test_search_tabular_by_column(self, tmp_path: Path) -> None:
         runtime = _make_runtime(tmp_path)
@@ -802,6 +809,7 @@ class TestContextWindowTool:
         assert not result.isError, result.text
         data = result.require_structured()
         assert data["window_block_refs"] == ["#/body/2"]
+        assert data["path"] == ["Introduction", "Background"]
 
     async def test_window_invalid_ref(self, tmp_path: Path) -> None:
         from kaos_content.tools import ContextWindowTool
