@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   metadata dict, and the `kaos-content-search-tabular` MCP tool's JSON
   output gains `path: list[str]` to match
   `kaos-content-search-document`.
+- **`kaos_content.artifacts.load_tabular()` now applies the same
+  mime-type guard as `load_document()`.** Passing an HTML / XML
+  artifact previously produced an opaque `JSONDecodeError` after the
+  body had already been read. The guard checks `manifest.mime_type`
+  before reading bytes (rejecting anything outside
+  `{"application/json", "application/x-ndjson"}`) and, when the
+  manifest carries no mime hint, sniffs the first non-whitespace byte
+  for `<` to catch untyped HTML/XML. The new error is
+  `ArtifactMimeTypeError` with an agent-friendly hint pointing at
+  `store_tabular()`, matching the load_document parity from 0.1.0a9.
 
 ## [0.1.0a11] — 2026-05-18
 
