@@ -160,6 +160,10 @@ include = [
   "/SECURITY.md",
   "/LICENSE",
   "/NOTICE",
+  "/AGENTS.md",
+  "/CODE_OF_CONDUCT.md",
+  "/CONTRIBUTING.md",
+  "/docs/standards",
   "/tests",
 ]
 
@@ -188,15 +192,21 @@ markers = [
 
 [tool.check-manifest]
 # We deliberately do NOT ship internal-only files in the PyPI sdist:
-# CLAUDE.md is developer notes, docs/{PRD,PLAN,PARSER_DECISION}.md are
-# design history (linked from the public README + GitHub instead),
-# and uv.lock is an application lockfile — libraries pin via
-# pyproject.toml dependency ranges, not via lockfiles. The hatch
-# sdist include-list in [tool.hatch.build.targets.sdist] is the
-# source of truth.
+# CLAUDE.md is developer notes; docs/{PRD,PLAN,PARSER_DECISION,*}.md
+# at the docs/ root are design history (linked from the public README
+# + GitHub instead); .pre-commit-config.yaml is dev infra that has no
+# meaning to an sdist consumer; uv.lock is an application lockfile —
+# libraries pin via pyproject.toml dependency ranges, not via
+# lockfiles. The hatch sdist include-list in
+# [tool.hatch.build.targets.sdist] is the source of truth. AGENTS.md,
+# CODE_OF_CONDUCT.md, CONTRIBUTING.md, and docs/standards/*.md ARE
+# shipped — contributors who pull the sdist (e.g. distro packagers)
+# need them for context and to follow the documented engineering
+# process.
 ignore = [
   "CLAUDE.md",
   "docs/*.md",
+  ".pre-commit-config.yaml",
   "uv.lock",
 ]
 

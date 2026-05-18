@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **sdist now includes `AGENTS.md`, `CODE_OF_CONDUCT.md`,
+  `CONTRIBUTING.md`, and `docs/standards/*.md`.** These are the
+  canonical contributor-facing docs referenced from the project root.
+  Previously they were tracked in git but excluded from the published
+  sdist, which broke distro packagers and source-built installs that
+  needed them for context. `.pre-commit-config.yaml` and `uv.lock`
+  remain excluded by design (dev infra / application lockfile).
+  `check-manifest` now passes; the hatch sdist include-list remains the
+  source of truth.
+
 ### Fixed
 
 - **`SearchResult.path` is now populated by `search_tabular()` and
