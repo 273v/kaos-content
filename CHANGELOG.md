@@ -7,54 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **sdist now includes `AGENTS.md`, `CODE_OF_CONDUCT.md`,
-  `CONTRIBUTING.md`, and `docs/standards/*.md`.** These are the
-  canonical contributor-facing docs referenced from the project root.
-  Previously they were tracked in git but excluded from the published
-  sdist, which broke distro packagers and source-built installs that
-  needed them for context. `.pre-commit-config.yaml` and `uv.lock`
-  remain excluded by design (dev infra / application lockfile).
-  `check-manifest` now passes; the hatch sdist include-list remains the
-  source of truth.
-- **Private NDA integration tests now look at `$KAOS_CONTENT_NDA_DIR`
-  instead of a maintainer-local default path.** `tests/integration/
-  test_summary_real_ndas.py`, `test_corpus_tools_real_ndas.py`, and
-  `test_entity_filters_real_ndas.py` previously hard-coded
-  `~/projects/273v/kelvin-app/samples/docx/`. Without the corpus the
-  suites already skipped, but the path-as-default leaked the
-  maintainer's layout into the public sdist. The env var lets external
-  contributors point at any directory of `MNDA*.docx` files; absent
-  the env var the tests skip with a self-explanatory reason. Also
-  removed an absolute local path from `docs/SEARCHABLE_CORPUS.md`.
-
-### Fixed
-
-- **`SearchResult.path` is now populated by `search_tabular()` and
-  forwarded by `search_corpus()`.** The 0.1.0a11 release introduced the
-  canonical `path` breadcrumb but `search_tabular()` set
-  `section_title` while leaving `path=()`, and `search_corpus()` only
-  forwarded `heading_path` / `section_title` to its
-  `RetrievalResult.metadata`. Empty `path` is the documented contract
-  for "no structural identifier available", so downstream agents
-  refused to cite the column / section even though the data was
-  present. `search_tabular()` now sets
-  `path=(section_title,)`, `search_corpus()` includes `path` in its
-  metadata dict, and the `kaos-content-search-tabular` MCP tool's JSON
-  output gains `path: list[str]` to match
-  `kaos-content-search-document`.
-- **`kaos_content.artifacts.load_tabular()` now applies the same
-  mime-type guard as `load_document()`.** Passing an HTML / XML
-  artifact previously produced an opaque `JSONDecodeError` after the
-  body had already been read. The guard checks `manifest.mime_type`
-  before reading bytes (rejecting anything outside
-  `{"application/json", "application/x-ndjson"}`) and, when the
-  manifest carries no mime hint, sniffs the first non-whitespace byte
-  for `<` to catch untyped HTML/XML. The new error is
-  `ArtifactMimeTypeError` with an agent-friendly hint pointing at
-  `store_tabular()`, matching the load_document parity from 0.1.0a9.
-
 ## [0.1.0a11] — 2026-05-18
 
 ### Added
@@ -87,6 +39,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`kaos-content-context-window` MCP tool result** now includes a
   top-level `path: list[str]` describing the section the target block
   lives in. Empty list signals no enclosing heading.
+
+### Changed
+
+- **sdist now includes `AGENTS.md`, `CODE_OF_CONDUCT.md`,
+  `CONTRIBUTING.md`, and `docs/standards/*.md`.** These are the
+  canonical contributor-facing docs referenced from the project root.
+  Previously they were tracked in git but excluded from the published
+  sdist, which broke distro packagers and source-built installs that
+  needed them for context. `.pre-commit-config.yaml` and `uv.lock`
+  remain excluded by design (dev infra / application lockfile).
+  `check-manifest` now passes; the hatch sdist include-list remains the
+  source of truth.
+- **Private NDA integration tests now look at `$KAOS_CONTENT_NDA_DIR`
+  instead of a maintainer-local default path.** `tests/integration/
+  test_summary_real_ndas.py`, `test_corpus_tools_real_ndas.py`, and
+  `test_entity_filters_real_ndas.py` previously hard-coded
+  `~/projects/273v/kelvin-app/samples/docx/`. Without the corpus the
+  suites already skipped, but the path-as-default leaked the
+  maintainer's layout into the public sdist. The env var lets external
+  contributors point at any directory of `MNDA*.docx` files; absent
+  the env var the tests skip with a self-explanatory reason. Also
+  removed an absolute local path from `docs/SEARCHABLE_CORPUS.md`.
+
+### Fixed
+
+- **`SearchResult.path` is now populated by `search_tabular()` and
+  forwarded by `search_corpus()`.** The 0.1.0a11 breadcrumb work
+  introduced the canonical `path` field but `search_tabular()` set
+  `section_title` while leaving `path=()`, and `search_corpus()` only
+  forwarded `heading_path` / `section_title` to its
+  `RetrievalResult.metadata`. Empty `path` is the documented contract
+  for "no structural identifier available", so downstream agents
+  refused to cite the column / section even though the data was
+  present. `search_tabular()` now sets `path=(section_title,)`,
+  `search_corpus()` includes `path` in its metadata dict, and the
+  `kaos-content-search-tabular` MCP tool's JSON output gains
+  `path: list[str]` to match `kaos-content-search-document`.
+- **`kaos_content.artifacts.load_tabular()` now applies the same
+  mime-type guard as `load_document()`.** Passing an HTML / XML
+  artifact previously produced an opaque `JSONDecodeError` after the
+  body had already been read. The guard checks `manifest.mime_type`
+  before reading bytes (rejecting anything outside
+  `{"application/json", "application/x-ndjson"}`) and, when the
+  manifest carries no mime hint, sniffs the first non-whitespace byte
+  for `<` to catch untyped HTML/XML. The new error is
+  `ArtifactMimeTypeError` with an agent-friendly hint pointing at
+  `store_tabular()`, matching the load_document parity from 0.1.0a9.
 
 ## [0.1.0a10] — 2026-05-17
 
