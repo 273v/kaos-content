@@ -41,7 +41,7 @@ dependencies = [
   # without forcing every install to use --pre.
   # kaos-content 0.1.0a2 consumes kaos_core.security.is_safe_url; the
   # 0.1.0a4 floor pins the new module's debut.
-  "kaos-core>=0.1.0a4,<0.2",
+  "kaos-core>=0.1.0a10,<0.2",
   "pydantic>=2.11.0",
   "uuid6>=2024.7.10; python_version < '3.14'",
 ]
