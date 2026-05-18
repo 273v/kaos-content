@@ -3,7 +3,7 @@ revision = 3
 requires-python = ">=3.13"
 
 [options]
-exclude-newer = "2026-05-15T02:22:19.454369595Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "PT72H"
 
 [options.exclude-newer-package]
@@ -481,16 +481,16 @@ wheels = [
 
 [[package]]
 name = "kaos-office"
-version = "0.1.0a4"
+version = "0.1.0a6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "kaos-content", extra = ["markdown"] },
     { name = "kaos-core" },
     { name = "lxml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ab/0d/fcd021e8adf751f923b01b508c55808bda254570c2c6dd360d8dd3a4b87c/kaos_office-0.1.0a4.tar.gz", hash = "sha256:4486f1c4f79039364675d610bd0e99655a9fb7911c2e2141c75e5e1c0f58f89f", size = 105779, upload-time = "2026-05-15T13:01:15.625Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/03/b2/b9cbfaf980c5a48fecf99c5be6598b9b82615f7734211449088b6c5e68d9/kaos_office-0.1.0a6.tar.gz", hash = "sha256:3dd7d8647bf82a3bdec62b0acae5917cb8db7278ec950ece65edaa6702f423b1", size = 109788, upload-time = "2026-05-18T03:07:54.641Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0f/7e/665e37f2f6e58c7ffd14232ef97b502e9f780f0f3a1b207c410b1c413792/kaos_office-0.1.0a4-py3-none-any.whl", hash = "sha256:b8a34eec684112fc5e61219c404dfe7069c6b81228c31d1ea01e714ef687aed5", size = 116894, upload-time = "2026-05-15T13:01:14.005Z" },
+    { url = "https://files.pythonhosted.org/packages/66/d1/81f3ac1e595e01c185cd4de1ebaf8941fe704dc10d30dd743d8bcf841b25/kaos_office-0.1.0a6-py3-none-any.whl", hash = "sha256:34912d9d157f64fe1712a52a9ae71d03ca9890f28427b3941b01b74c5c42b7c4", size = 120465, upload-time = "2026-05-18T03:07:53.43Z" },
 ]
 
 [[package]]
