@@ -68,7 +68,7 @@ class MinHashLevel(DedupLevel):
         documents: list[DedupDocument],
     ) -> list[DedupCluster]:
         try:
-            from kaos_nlp_core.hashing import (  # type: ignore[import-not-found]
+            from kaos_nlp_core.hashing import (
                 MinHasher,
                 find_duplicates,
             )

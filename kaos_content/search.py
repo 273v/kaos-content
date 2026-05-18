@@ -264,7 +264,7 @@ def _ensure_transformers_available() -> None:
     Used by retrieval modes that depend on the dense embedding backend.
     """
     try:
-        import kaos_nlp_transformers  # type: ignore[import-not-found]  # noqa: F401
+        import kaos_nlp_transformers  # noqa: F401
     except ImportError as exc:
         msg = (
             "Embedding-based retrieval requires the optional "

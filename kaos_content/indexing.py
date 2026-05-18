@@ -1045,7 +1045,7 @@ class AnnotationIndex:
                 end = tgt.end_offset if tgt.end_offset is not None else 0
                 if end < start:
                     end = start
-                self._index.add(label, int(start), int(end))  # type: ignore[union-attr]
+                self._index.add(label, int(start), int(end))
 
     # ── Public queries ──────────────────────────────────────────────────
 

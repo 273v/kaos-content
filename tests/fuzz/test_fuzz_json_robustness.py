@@ -95,7 +95,7 @@ def test_random_json_either_parses_or_raises(payload: bytes) -> None:
 
 
 @st.composite
-def _simple_documents(draw):  # type: ignore[no-untyped-def]
+def _simple_documents(draw):
     """A small but realistic ContentDocument generator."""
     n_paragraphs = draw(st.integers(min_value=0, max_value=4))
     blocks = []

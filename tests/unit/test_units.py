@@ -286,7 +286,7 @@ class TestUnitDataclasses:
             section_title=None,
         )
         with pytest.raises(AttributeError):
-            unit.row = 1  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+            unit.row = 1  # ty: ignore[invalid-assignment]
 
     def test_sentence_unit_is_frozen(self) -> None:
         unit = SentenceUnit(
@@ -300,4 +300,4 @@ class TestUnitDataclasses:
             char_end=6,
         )
         with pytest.raises(AttributeError):
-            unit.row = 1  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+            unit.row = 1  # ty: ignore[invalid-assignment]

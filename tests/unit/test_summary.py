@@ -63,7 +63,7 @@ class TestDocumentSummaryValueType:
         s = DocumentSummary(head_tokens="hello")
         # Pydantic frozen — reassignment raises ValidationError.
         with pytest.raises(Exception):  # noqa: B017 — Pydantic ValidationError
-            s.head_tokens = "different"  # type: ignore[misc]
+            s.head_tokens = "different"
 
     def test_round_trip_json(self) -> None:
         original = DocumentSummary(

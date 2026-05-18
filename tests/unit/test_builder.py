@@ -504,7 +504,7 @@ class TestBuildProducesValidDocument:
         doc = DocumentBuilder().paragraph("x").build()
         assert isinstance(doc, ContentDocument)
         with pytest.raises(ValidationError):
-            doc.body = ()  # type: ignore[misc]
+            doc.body = ()
 
     def test_body_is_tuple(self) -> None:
         doc = DocumentBuilder().paragraph("x").build()
@@ -610,9 +610,9 @@ class TestComplexDocument:
 
         # Verify provenance
         assert doc.body[0].provenance is not None
-        assert doc.body[0].provenance.page == 1  # type: ignore[union-attr]
-        assert doc.body[0].provenance.source is not None  # type: ignore[union-attr]
-        assert doc.body[0].provenance.source.uri == "file:///contracts/sa-001.pdf"  # type: ignore[union-attr]
+        assert doc.body[0].provenance.page == 1
+        assert doc.body[0].provenance.source is not None
+        assert doc.body[0].provenance.source.uri == "file:///contracts/sa-001.pdf"
 
         # Verify serialization
         md = serialize_markdown(doc)

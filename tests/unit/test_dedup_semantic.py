@@ -105,7 +105,7 @@ class TestInstallHints:
                     targets.add(mod)
         for mod in targets:
             snapshot[mod] = sys.modules.get(mod, cls._MISSING)
-            sys.modules[mod] = None  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+            sys.modules[mod] = None  # ty: ignore[invalid-assignment]
         return snapshot
 
     @classmethod
@@ -116,7 +116,7 @@ class TestInstallHints:
                 # so a future fresh import can succeed.
                 sys.modules.pop(mod, None)
             else:
-                sys.modules[mod] = val  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+                sys.modules[mod] = val  # ty: ignore[invalid-assignment]
 
     @pytest.mark.skipif(not _has_scipy, reason="needs scipy installed to monkey-hide it")
     def test_missing_scipy_raises_install_hint(self) -> None:
@@ -197,7 +197,7 @@ class TestFindClustersWithFakeModel:
 
         class _FakeEmbeddingModel:
             @classmethod
-            def load(cls, model_id: str, **kwargs: object) -> _FakeModel:  # type: ignore[unused-argument]
+            def load(cls, model_id: str, **kwargs: object) -> _FakeModel:
                 seen_model_ids.append(model_id)
                 return _FakeModel()
 
@@ -263,7 +263,7 @@ class TestFindClustersWithFakeModel:
 
         class _ProbeEmbeddingModel:
             @classmethod
-            def load(cls, model_id: str, **kwargs: object) -> _ProbeModel:  # type: ignore[unused-argument]
+            def load(cls, model_id: str, **kwargs: object) -> _ProbeModel:
                 _ = model_id
                 return _ProbeModel()
 

@@ -472,7 +472,7 @@ class TestPresets:
         both via ``uv sync --group dev``.
         """
         try:
-            import kaos_nlp_transformers  # noqa: F401  # type: ignore[import-not-found]
+            import kaos_nlp_transformers  # noqa: F401
             import scipy  # noqa: F401
         except ImportError:
             pytest.skip("kaos-nlp-transformers + scipy required for the semantic plugin")

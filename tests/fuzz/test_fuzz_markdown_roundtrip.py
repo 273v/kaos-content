@@ -93,25 +93,25 @@ _inline = st.one_of(_text_inline(), _emphasis_inline(), _strong_inline(), _code_
 
 
 @st.composite
-def _paragraph(draw):  # type: ignore[no-untyped-def]
+def _paragraph(draw):
     children = draw(st.lists(_inline, min_size=1, max_size=6))
     return Paragraph(children=tuple(children))
 
 
 @st.composite
-def _heading(draw):  # type: ignore[no-untyped-def]
+def _heading(draw):
     depth = draw(st.integers(min_value=1, max_value=6))
     return Heading(depth=depth, children=(Text(value=draw(_safe_text)),))
 
 
 @st.composite
-def _code_block(draw):  # type: ignore[no-untyped-def]
+def _code_block(draw):
     lang = draw(st.one_of(st.none(), st.from_regex(r"[a-z]{1,8}", fullmatch=True)))
     return CodeBlock(value=draw(_safe_text), language=lang)
 
 
 @st.composite
-def _bullet_list(draw):  # type: ignore[no-untyped-def]
+def _bullet_list(draw):
     n = draw(st.integers(min_value=1, max_value=4))
     items = []
     for _ in range(n):
@@ -120,7 +120,7 @@ def _bullet_list(draw):  # type: ignore[no-untyped-def]
 
 
 @st.composite
-def _block_quote(draw):  # type: ignore[no-untyped-def]
+def _block_quote(draw):
     n = draw(st.integers(min_value=1, max_value=3))
     return BlockQuote(children=tuple(draw(_paragraph()) for _ in range(n)))
 
@@ -136,7 +136,7 @@ _block = st.one_of(
 
 
 @st.composite
-def _document(draw):  # type: ignore[no-untyped-def]
+def _document(draw):
     n = draw(st.integers(min_value=1, max_value=8))
     blocks = []
     for _ in range(n):

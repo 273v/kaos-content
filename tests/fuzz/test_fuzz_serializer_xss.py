@@ -38,7 +38,7 @@ _url_payload = st.text(max_size=64)
 
 
 @st.composite
-def _adversarial_url(draw):  # type: ignore[no-untyped-def]
+def _adversarial_url(draw):
     scheme = draw(_unsafe_scheme)
     payload = draw(_url_payload)
     # Build the scheme one character at a time, optionally entity-encoding

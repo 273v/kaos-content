@@ -484,7 +484,7 @@ class TestTabularDocumentFromCells:
     def test_non_extraction_cell_rejected(self) -> None:
         with pytest.raises(TypeError, match="ExtractionCell"):
             TabularDocument.from_cells(
-                [{"doc_id": "x"}],  # type: ignore[list-item]
+                [{"doc_id": "x"}],
                 column_specs=(("a", ColumnType.TEXT),),
             )
 

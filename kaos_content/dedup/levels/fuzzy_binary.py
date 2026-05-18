@@ -58,7 +58,7 @@ class FuzzyBinaryLevel(DedupLevel):
         documents: list[DedupDocument],
     ) -> list[DedupCluster]:
         try:
-            from kaos_nlp_core.hashing import CTPH  # type: ignore[import-not-found]
+            from kaos_nlp_core.hashing import CTPH
         except ImportError:
             logger.warning(
                 "FuzzyBinaryLevel requires kaos-nlp-core [nlp] extra. Skipping fuzzy binary dedup."

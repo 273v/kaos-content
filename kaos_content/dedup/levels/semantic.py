@@ -129,8 +129,8 @@ class SemanticDedupLevel(DedupLevel):
         # contract — actionable install path before the cryptic resolver
         # error surfaces.
         try:
-            from kaos_nlp_transformers import EmbeddingModel  # type: ignore[import-not-found]
-            from kaos_nlp_transformers.settings import (  # type: ignore[import-not-found]
+            from kaos_nlp_transformers import EmbeddingModel
+            from kaos_nlp_transformers.settings import (
                 KaosNLPTransformersSettings,
             )
         except ImportError as exc:

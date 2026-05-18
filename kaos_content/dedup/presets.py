@@ -39,8 +39,8 @@ def _semantic_available() -> bool:
     actual capability.
     """
     try:
-        import kaos_nlp_transformers  # noqa: F401  # type: ignore[import-not-found]
-        import scipy  # noqa: F401  # type: ignore[import-not-found]
+        import kaos_nlp_transformers  # noqa: F401
+        import scipy  # noqa: F401
     except ImportError:
         return False
     return True

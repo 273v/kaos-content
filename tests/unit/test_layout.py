@@ -119,7 +119,7 @@ class TestTextBlock:
     def test_frozen(self):
         b = make_block(10, 20, 100, 40)
         with pytest.raises(AttributeError):
-            b.left = 5  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+            b.left = 5  # ty: ignore[invalid-assignment]
 
     def test_properties(self):
         b = make_block(10, 20, 110, 50)

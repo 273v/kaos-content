@@ -143,7 +143,7 @@ def test_pure_python_path_matches_backed_path() -> None:
     doc = _doc_with([a, b])
     idx = AnnotationIndex(doc)
     # Force-build then query.
-    idx._ensure_built()  # type: ignore[attr-defined]
+    idx._ensure_built()
     backed_hits = idx.annotations_containing_offset("/body/0", 7)
     # Reference path: walk annotations.
     naive = [
