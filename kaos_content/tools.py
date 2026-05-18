@@ -1425,7 +1425,7 @@ class DedupSemanticTool(KaosTool):
         # the level falls back to the package defaults.
         settings = None
         try:
-            from kaos_nlp_transformers.settings import (  # type: ignore[import-not-found]
+            from kaos_nlp_transformers.settings import (
                 KaosNLPTransformersSettings,
             )
 

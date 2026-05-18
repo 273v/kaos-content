@@ -178,7 +178,7 @@ class Revisions:
         """All dated revisions, ascending by date. Undated revisions are excluded."""
         return sorted(
             (r for r in self.items if r.date is not None),
-            key=lambda r: r.date,  # type: ignore[return-value,arg-type]
+            key=lambda r: r.date,
         )
 
     def summary(self) -> dict[str, dict[str, int]]:

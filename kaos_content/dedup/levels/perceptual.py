@@ -63,7 +63,7 @@ class PerceptualHashLevel(DedupLevel):
         documents: list[DedupDocument],
     ) -> list[DedupCluster]:
         try:
-            import imagehash  # type: ignore[import-not-found]
+            import imagehash
         except ImportError:
             logger.warning(
                 "PerceptualHashLevel requires imagehash [dedup-perceptual] extra. "

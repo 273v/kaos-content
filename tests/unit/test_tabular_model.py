@@ -199,7 +199,7 @@ class TestColumn:
     def test_frozen(self) -> None:
         col = Column("x")
         with pytest.raises(AttributeError):
-            col.name = "y"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+            col.name = "y"  # ty: ignore[invalid-assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +269,7 @@ class TestTable:
     def test_frozen(self) -> None:
         t = Table(name="t")
         with pytest.raises(AttributeError):
-            t.name = "new"  # type: ignore[misc]  # ty: ignore[invalid-assignment]
+            t.name = "new"  # ty: ignore[invalid-assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +312,7 @@ class TestTabularDocument:
     def test_frozen(self) -> None:
         doc = TabularDocument()
         with pytest.raises(ValidationError):
-            doc.tables = ()  # type: ignore[misc]
+            doc.tables = ()
 
     def test_realistic_csv_document(self) -> None:
         """Simulate a CSV file loaded as TabularDocument."""

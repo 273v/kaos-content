@@ -444,35 +444,35 @@ class TestPydanticEdgeCases:
         doc = ContentDocument(body=(Paragraph(children=(Text(value="x"),)),))
         assert isinstance(doc.body, tuple)
         with pytest.raises(AttributeError):
-            doc.body.append(Paragraph(children=(Text(value="y"),)))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+            doc.body.append(Paragraph(children=(Text(value="y"),)))  # ty: ignore[unresolved-attribute]
 
     def test_deep_freeze_children_tuple(self) -> None:
         """Node children are tuples — mutation should fail."""
         p = Paragraph(children=(Text(value="x"),))
         assert isinstance(p.children, tuple)
         with pytest.raises(AttributeError):
-            p.children.append(Text(value="y"))  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+            p.children.append(Text(value="y"))  # ty: ignore[unresolved-attribute]
 
     def test_deep_freeze_attr_classes_tuple(self) -> None:
         """Attr.classes is a tuple — mutation should fail."""
         a = Attr(classes=("a", "b"))
         assert isinstance(a.classes, tuple)
         with pytest.raises(AttributeError):
-            a.classes.append("c")  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+            a.classes.append("c")  # ty: ignore[unresolved-attribute]
 
     def test_deep_freeze_annotations_tuple(self) -> None:
         """ContentDocument.annotations is a tuple — mutation should fail."""
         doc = ContentDocument(annotations=())
         assert isinstance(doc.annotations, tuple)
         with pytest.raises(AttributeError):
-            doc.annotations.append(None)  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+            doc.annotations.append(None)  # ty: ignore[unresolved-attribute]
 
     def test_deep_freeze_table_rows_tuple(self) -> None:
         """TableSection.rows is a tuple — mutation should fail."""
         ts = TableSection(rows=())
         assert isinstance(ts.rows, tuple)
         with pytest.raises(AttributeError):
-            ts.rows.append(Row())  # type: ignore[union-attr]  # ty: ignore[unresolved-attribute]
+            ts.rows.append(Row())  # ty: ignore[unresolved-attribute]
 
     def test_list_coercion_to_tuple(self) -> None:
         """Passing a list to a tuple field should auto-coerce."""

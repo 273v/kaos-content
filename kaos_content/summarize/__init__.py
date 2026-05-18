@@ -261,7 +261,7 @@ def _select_bottom_ngrams(
     return tuple(NGramFrequency(ngram=ng, count=c) for ng, c in recurring[:k])
 
 
-def _compute_entity_counts(sentences) -> dict[str, int]:  # type: ignore[no-untyped-def]
+def _compute_entity_counts(sentences) -> dict[str, int]:
     """Count *sentences* containing at least one match of each entity type.
 
     Sentence-level granularity (vs. raw match count) matches the

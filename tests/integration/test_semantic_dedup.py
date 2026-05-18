@@ -194,7 +194,7 @@ def test_unregistered_model_error_message() -> None:
     if importlib.util.find_spec("kaos_nlp_transformers") is None:
         pytest.skip("kaos-nlp-transformers not installed")
     from kaos_nlp_transformers.errors import (
-        ModelNotRegisteredError,  # type: ignore[import-not-found]
+        ModelNotRegisteredError,
     )
 
     from kaos_content.dedup.levels.semantic import SemanticDedupLevel

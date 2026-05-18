@@ -27,7 +27,7 @@ class TestSectionDefaults:
 
         s = Section(end_block_index=5)
         with pytest.raises(ValidationError):
-            s.end_block_index = 10  # type: ignore[misc]
+            s.end_block_index = 10
 
 
 class TestSectionOnDocument:
@@ -70,7 +70,7 @@ class TestSectionOnDocument:
 class TestSectionBreakType:
     def test_all_break_types_accepted(self) -> None:
         for bt in ("continuous", "nextPage", "nextColumn", "evenPage", "oddPage"):
-            s = Section(end_block_index=1, break_type=bt)  # type: ignore[arg-type]
+            s = Section(end_block_index=1, break_type=bt)
             assert s.break_type == bt
 
     def test_unknown_break_type_rejected(self) -> None:

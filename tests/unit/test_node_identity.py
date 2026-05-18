@@ -60,7 +60,7 @@ class TestNodeUUID:
 
         t = Text(value="x")
         with pytest.raises(ValidationError):
-            t.id = "new-id"  # type: ignore[misc]
+            t.id = "new-id"
 
     def test_json_roundtrip_preserves_id(self) -> None:
         t = Text(value="hello")

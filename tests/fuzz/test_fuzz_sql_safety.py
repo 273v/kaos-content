@@ -37,12 +37,12 @@ _dangerous_func = st.sampled_from(_DANGEROUS_SQL_FUNCS)
 _dangerous_kw = st.sampled_from(_DANGEROUS_SQL_KEYWORDS)
 
 
-def _random_case(s: str, draw) -> str:  # type: ignore[no-untyped-def]
+def _random_case(s: str, draw) -> str:
     return "".join(c.upper() if draw(st.booleans()) else c.lower() for c in s)
 
 
 @st.composite
-def _random_case_strategy(draw, s: str):  # type: ignore[no-untyped-def]
+def _random_case_strategy(draw, s: str):
     return _random_case(s, draw)
 
 

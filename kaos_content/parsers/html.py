@@ -573,7 +573,7 @@ _pre_content_mode_var: contextvars.ContextVar[str] = contextvars.ContextVar(
 
 
 @contextlib.contextmanager
-def extractor_scope(name: str):  # type: ignore[type-arg]
+def extractor_scope(name: str):
     """Context manager to set the extractor name for provenance within a scope.
 
     Usage::
@@ -592,7 +592,7 @@ def extractor_scope(name: str):  # type: ignore[type-arg]
 
 
 @contextlib.contextmanager
-def pre_content_scope(mode: str):  # type: ignore[type-arg]
+def pre_content_scope(mode: str):
     """Context manager to set the ``<pre>`` content mode within a scope.
 
     ``mode`` is ``"code"`` (default, produce ``CodeBlock``) or

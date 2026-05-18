@@ -31,7 +31,7 @@ from kaos_content import (
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-def _simple_table(cell_content: tuple) -> ContentDocument:  # type: ignore[type-arg]
+def _simple_table(cell_content: tuple) -> ContentDocument:
     """Helper: one-column table with a header and one body cell containing *cell_content*."""
     return ContentDocument(
         body=(
