@@ -763,6 +763,10 @@ class SearchTableTool(KaosTool):
                 "block_ref": r.block_ref,
                 "section_ref": r.section_ref,
                 "section_title": r.section_title,
+                # Full structural breadcrumb (root-first, INCLUDING the
+                # immediate section). Empty list signals "no enclosing
+                # heading". See ``SearchResult.path`` docstring.
+                "path": list(r.path),
             }
             for r in results.results
         ]

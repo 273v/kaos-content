@@ -271,6 +271,38 @@ class TestSearchableDocumentSentence:
         assert results
         assert results[0].metadata["passage_uri"].startswith("test.pdf#c")
 
+    async def test_search_corpus_forwards_structural_path(
+        self, multi_section_doc: ContentDocument
+    ) -> None:
+        # Regression for the 0.1.0a11 follow-up: ``search_corpus`` was
+        # forwarding ``heading_path`` / ``section_title`` but dropping
+        # the canonical ``path`` breadcrumb. Downstream retrieval users
+        # then lost the structural citation that ``SearchResult.path``
+        # is the contract for.
+        from kaos_content.indexing import SearchableDocument
+        from kaos_content.model.metadata import DocumentMetadata
+        from kaos_content.search import search_corpus
+
+        doc = multi_section_doc.model_copy(
+            update={"metadata": DocumentMetadata(title="Test Document", source=_source)}
+        )
+        sdoc = SearchableDocument(doc, level="paragraph")
+
+        results = await search_corpus([sdoc], "breach", top_k=2)
+
+        assert results
+        breach = results[0]
+        assert "path" in breach.metadata
+        path = breach.metadata["path"]
+        assert isinstance(path, list)
+        # Cross-check against the same metadata fields ``search_corpus``
+        # already forwards — the rule is path == heading_path + (section_title,)
+        # when section_title is non-empty, else heading_path.
+        heading_path = breach.metadata["heading_path"]
+        section_title = breach.metadata["section_title"]
+        expected = [*heading_path, section_title] if section_title else list(heading_path)
+        assert path == expected
+
 
 @pytest.mark.skipif(not _has_nlp, reason="kaos-nlp-core not installed")
 class TestSearchDocumentCharOffsets:

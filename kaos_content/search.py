@@ -988,6 +988,7 @@ def search_tabular(
                 score = 2.0 if val_lower == query_lower else 1.0
                 col_name = table.columns[col_idx].name if col_idx < len(table.columns) else "?"
 
+                section_title = f"{table.name}.{col_name}"
                 all_scored.append(
                     SearchResult(
                         text=val_str,
@@ -995,7 +996,8 @@ def search_tabular(
                         block_ref=f"#/tables/{table.name}/rows/{row_idx}/{col_name}",
                         page=None,
                         section_ref=table.name,
-                        section_title=f"{table.name}.{col_name}",
+                        section_title=section_title,
+                        path=(section_title,),
                     )
                 )
 
@@ -1140,6 +1142,7 @@ async def search_corpus(
                         "section_ref": sr.section_ref,
                         "section_title": sr.section_title,
                         "heading_path": list(sr.heading_path),
+                        "path": list(sr.path),
                     },
                     char_start=sr.char_start,
                     char_end=sr.char_end,
