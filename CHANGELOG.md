@@ -622,6 +622,11 @@ First public alpha release.
 This release is the first to ship under the Apache License 2.0.
 Earlier internal versions were proprietary.
 
-[Unreleased]: https://github.com/273v/kaos-content/compare/v0.1.0a5...HEAD
+[Unreleased]: https://github.com/273v/kaos-content/compare/v0.1.0a10...HEAD
+[0.1.0a10]: https://github.com/273v/kaos-content/compare/v0.1.0a9...v0.1.0a10
+[0.1.0a9]: https://github.com/273v/kaos-content/compare/v0.1.0a8...v0.1.0a9
+[0.1.0a8]: https://github.com/273v/kaos-content/compare/v0.1.0a7...v0.1.0a8
+[0.1.0a7]: https://github.com/273v/kaos-content/compare/v0.1.0a6...v0.1.0a7
+[0.1.0a6]: https://github.com/273v/kaos-content/compare/v0.1.0a5...v0.1.0a6
 [0.1.0a5]: https://github.com/273v/kaos-content/compare/v0.1.0a4...v0.1.0a5
 [0.1.0a1]: https://github.com/273v/kaos-content/releases/tag/v0.1.0a1
