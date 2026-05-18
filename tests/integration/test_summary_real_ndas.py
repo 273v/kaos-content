@@ -1,12 +1,16 @@
 """Integration tests for kaos_content.summarize against real NDA files.
 
-These tests parse the 5 real Mutual NDA samples in
-``~/projects/273v/kelvin-app/samples/docx/`` and assert that the
+These tests parse a set of real Mutual NDA samples and assert that the
 resulting summaries surface document-type signal (e.g.
 "confidential information" in top n-grams, dates >= 1 in entity_counts).
 The point is to prove the summary is *useful* — top n-grams identify
 the document type, entity_counts match what a human would tally —
 not just structurally well-formed.
+
+The NDA fixture corpus is private and not redistributable. Point
+``KAOS_CONTENT_NDA_DIR`` at a directory containing ``MNDA*.docx`` files
+to run the suite; without that env var these tests skip cleanly so
+external contributors and CI lanes without the fixture are unaffected.
 
 No LLM. Uses kaos-office's DOCX parser, which is a required dev
 dependency for this test.
@@ -14,6 +18,7 @@ dependency for this test.
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
@@ -22,11 +27,16 @@ import pytest
 from kaos_content.model.document import ContentDocument
 from kaos_content.summarize import build_document_summary
 
-NDA_DIR = Path.home() / "projects" / "273v" / "kelvin-app" / "samples" / "docx"
+# Private fixture corpus location. The env var takes precedence so
+# external contributors can stage the corpus anywhere; absent that, the
+# suite skips. We intentionally do NOT hard-code a maintainer-local
+# default path — the release checklist mandates internal-path scrubs.
+NDA_DIR_ENV = "KAOS_CONTENT_NDA_DIR"
+NDA_DIR = Path(os.environ[NDA_DIR_ENV]) if os.environ.get(NDA_DIR_ENV) else None
 
 requires_nda_fixtures = pytest.mark.skipif(
-    not NDA_DIR.exists() or not any(NDA_DIR.glob("MNDA*.docx")),
-    reason=f"NDA fixtures missing at {NDA_DIR}",
+    NDA_DIR is None or not NDA_DIR.exists() or not any(NDA_DIR.glob("MNDA*.docx")),
+    reason=f"NDA fixtures missing: set {NDA_DIR_ENV} to a directory containing MNDA*.docx",
 )
 
 
@@ -38,8 +48,8 @@ def _parse(docx_path: Path) -> ContentDocument:
 
 
 def _nda_paths() -> list[Path]:
-    """The 5 MNDA docx fixtures."""
-    if not NDA_DIR.exists():
+    """MNDA docx fixtures discovered under ``KAOS_CONTENT_NDA_DIR``."""
+    if NDA_DIR is None or not NDA_DIR.exists():
         return []
     return sorted(NDA_DIR.glob("MNDA*.docx"))
 

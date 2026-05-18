@@ -11,6 +11,7 @@ artifact store.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -27,11 +28,16 @@ from kaos_content.tools import (
     register_content_tools,
 )
 
-NDA_DIR = Path.home() / "projects" / "273v" / "kelvin-app" / "samples" / "docx"
+# Private NDA fixture corpus. Set ``KAOS_CONTENT_NDA_DIR`` to point at
+# a directory containing ``MNDA*.docx`` to run the suite; without it the
+# tests skip cleanly. We do NOT hard-code a maintainer-local default —
+# the release checklist mandates internal-path scrubs.
+NDA_DIR_ENV = "KAOS_CONTENT_NDA_DIR"
+NDA_DIR = Path(os.environ[NDA_DIR_ENV]) if os.environ.get(NDA_DIR_ENV) else None
 
 requires_nda_fixtures = pytest.mark.skipif(
-    not NDA_DIR.exists() or not any(NDA_DIR.glob("MNDA*.docx")),
-    reason=f"NDA fixtures missing at {NDA_DIR}",
+    NDA_DIR is None or not NDA_DIR.exists() or not any(NDA_DIR.glob("MNDA*.docx")),
+    reason=f"NDA fixtures missing: set {NDA_DIR_ENV} to a directory containing MNDA*.docx",
 )
 
 
@@ -42,7 +48,7 @@ def _parse(path: Path) -> ContentDocument:
 
 
 def _nda_paths() -> list[Path]:
-    if not NDA_DIR.exists():
+    if NDA_DIR is None or not NDA_DIR.exists():
         return []
     return sorted(NDA_DIR.glob("MNDA*.docx"))
 
