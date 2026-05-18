@@ -117,6 +117,18 @@ class SearchResult:
     immediate section. Empty when the hit is in document preamble or when
     the section has no ancestors."""
 
+    path: tuple[str, ...] = ()
+    """Full structural breadcrumb (root-first, INCLUDING the immediate
+    section). Equivalent to ``heading_path + (section_title,)`` when
+    ``section_title`` is non-empty, or ``heading_path`` otherwise. Empty
+    when the hit is in document preamble (no enclosing heading).
+
+    This is the canonical citation breadcrumb. Agents that need to cite a
+    position in a document MUST draw the section identifier from this
+    field — empty ``path`` is the contract that no structural identifier
+    is available for this hit, and any "Section N" claim about it would
+    be a fabrication."""
+
     doc_index: int | None = None
     """Index into ``SearchableCorpus.documents`` for the source document.
 
@@ -380,9 +392,11 @@ def _results_to_search_results(
             text = text[:preview_length] + "..."
 
         sec_ref = hit.metadata.get("section_ref")
-        path: tuple[str, ...] = ()
+        ancestors: tuple[str, ...] = ()
         if heading_paths is not None and sec_ref is not None:
-            path = heading_paths.get(sec_ref, ())
+            ancestors = heading_paths.get(sec_ref, ())
+        section_title = section_titles.get(sec_ref) if sec_ref else None
+        full_path = (*ancestors, section_title) if section_title else ancestors
         scored.append(
             SearchResult(
                 text=text,
@@ -390,10 +404,11 @@ def _results_to_search_results(
                 block_ref=hit.external_id or "",
                 page=hit.metadata.get("page"),
                 section_ref=sec_ref,
-                section_title=section_titles.get(sec_ref) if sec_ref else None,
+                section_title=section_title,
                 char_start=hit.metadata.get("char_start"),
                 char_end=hit.metadata.get("char_end"),
-                heading_path=path,
+                heading_path=ancestors,
+                path=full_path,
             )
         )
 
@@ -626,7 +641,8 @@ def _records_to_search_results(
         # Accept either; the dict knows its own key shape.
         section_key = (doc_index, sec_ref) if doc_index is not None else sec_ref
         title = section_titles.get(section_key) if sec_ref else None
-        path = heading_paths.get(section_key, ()) if sec_ref else ()
+        ancestors = heading_paths.get(section_key, ()) if sec_ref else ()
+        full_path = (*ancestors, title) if title else ancestors
         doc_uri = (
             doc_uris[doc_index]
             if doc_uris is not None and doc_index is not None and 0 <= doc_index < len(doc_uris)
@@ -642,7 +658,8 @@ def _records_to_search_results(
                 section_title=title,
                 char_start=rec.get("char_start"),
                 char_end=rec.get("char_end"),
-                heading_path=path,
+                heading_path=ancestors,
+                path=full_path,
                 doc_index=doc_index,
                 doc_uri=doc_uri,
             )

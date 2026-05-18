@@ -627,6 +627,12 @@ class SearchDocumentTool(KaosTool):
                 "page": r.page,
                 "section_ref": r.section_ref,
                 "section_title": r.section_title,
+                # Full structural breadcrumb (root-first, INCLUDING the
+                # immediate section). Empty list signals "no enclosing
+                # heading" — agents must NOT invent section identifiers
+                # for hits with empty path. See
+                # ``SearchResult.path`` docstring.
+                "path": list(r.path),
             }
             for r in results.results
         ]
@@ -1176,11 +1182,15 @@ class ContextWindowTool(KaosTool):
         end = min(len(doc.body) - 1, body_idx + after_blocks)
 
         # Optional expansion to the enclosing section when the window
-        # crosses a heading boundary.
+        # crosses a heading boundary. Also used to compute the
+        # structural breadcrumb for the target node — we always need a
+        # view to derive ``path`` from the target's containing section,
+        # so the view construction below is shared between the expand
+        # logic and the path computation.
+        view = DocumentView(doc)
         expanded_section: bool = False
         section_heading_ref: str | None = None
         if expand_to_section:
-            view = DocumentView(doc)
             target_section = None
             for sv in view.flat_sections:
                 if sv.heading_ref is None:
@@ -1226,6 +1236,12 @@ class ContextWindowTool(KaosTool):
             lines.append(f"{marker} {ref}\n{block_text}")
         formatted = "\n\n".join(lines)
 
+        # Structural breadcrumb for the target node — the chain of
+        # enclosing heading texts. Empty list means the target lives in
+        # the preamble (no heading); agents MUST NOT invent a section
+        # identifier for an empty path. See ``DocumentView.block_path``.
+        target_path = list(view.block_path(node_ref))
+
         structured = {
             "artifact_id": artifact_id,
             "target_node_ref": node_ref,
@@ -1237,6 +1253,7 @@ class ContextWindowTool(KaosTool):
             "after_blocks": after_blocks,
             "expanded_to_section": expanded_section,
             "enclosing_section_ref": section_heading_ref,
+            "path": target_path,
             "text": window_text,
         }
         return ToolResult.create_success(output=structured, summary=formatted)

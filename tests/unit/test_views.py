@@ -257,6 +257,70 @@ class TestSectionViews:
 
 
 # ---------------------------------------------------------------------------
+# block_path (structural breadcrumbs)
+# ---------------------------------------------------------------------------
+
+
+class TestBlockPath:
+    """``DocumentView.block_path`` exposes the chain of enclosing heading
+    texts for any block. Empty tuple means "no enclosing heading" (the
+    contract that downstream agents must not invent section identifiers).
+    """
+
+    def test_single_top_level_section(self) -> None:
+        # Heading text mirrors the NDA case: agent must cite "11. GOVERNING LAW"
+        # verbatim — including the leading numbering token — not just "GOVERNING LAW".
+        doc = _doc(_h(1, "11. GOVERNING LAW"), _p("Delaware law applies."))
+        view = DocumentView(doc)
+        assert view.block_path("#/body/1") == ("11. GOVERNING LAW",)
+
+    def test_heading_itself_returns_own_section_path(self) -> None:
+        doc = _doc(_h(1, "Section A"), _p("text"))
+        view = DocumentView(doc)
+        # The heading ref belongs to its own section.
+        assert view.block_path("#/body/0") == ("Section A",)
+
+    def test_nested_sections(self) -> None:
+        doc = _doc(
+            _h(1, "Chapter 1"),
+            _h(2, "Section 1.1"),
+            _h(3, "Subsection 1.1.1"),
+            _p("Body here."),
+        )
+        view = DocumentView(doc)
+        assert view.block_path("#/body/3") == (
+            "Chapter 1",
+            "Section 1.1",
+            "Subsection 1.1.1",
+        )
+
+    def test_preamble_returns_empty(self) -> None:
+        doc = _doc(_p("Preamble paragraph"), _h(1, "Body"), _p("real content"))
+        view = DocumentView(doc)
+        assert view.block_path("#/body/0") == ()
+
+    def test_no_headings_returns_empty(self) -> None:
+        doc = _doc(_p("only paragraph"))
+        view = DocumentView(doc)
+        assert view.block_path("#/body/0") == ()
+
+    def test_unknown_ref_returns_empty(self) -> None:
+        doc = _doc(_h(1, "Title"), _p("Content"))
+        view = DocumentView(doc)
+        # No KeyError — empty tuple is the explicit contract.
+        assert view.block_path("#/body/99") == ()
+        assert view.block_path("#/notabody/0") == ()
+
+    def test_idempotent_across_calls(self) -> None:
+        doc = _doc(_h(1, "A"), _h(2, "A.1"), _p("text"))
+        view = DocumentView(doc)
+        first = view.block_path("#/body/2")
+        second = view.block_path("#/body/2")
+        # Two calls produce identical, equal tuples — the cache is sound.
+        assert first == second == ("A", "A.1")
+
+
+# ---------------------------------------------------------------------------
 # Paragraph views
 # ---------------------------------------------------------------------------
 
