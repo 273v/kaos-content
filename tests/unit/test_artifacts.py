@@ -33,10 +33,13 @@ from kaos_content.artifacts import (
     document_to_resource_views,
     document_to_summary,
     load_document,
+    load_tabular,
     store_document,
+    store_tabular,
     unique_document_name,
 )
 from kaos_content.errors import ArtifactMimeTypeError
+from kaos_content.model.tabular import Column, ColumnType, Table, TabularDocument
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -409,6 +412,100 @@ async def test_load_document_accepts_valid_json_artifact(tmp_path: Path) -> None
     loaded = await load_document(manifest.artifact_id, runtime)
     assert loaded.metadata.title == "Test Document"
     assert len(loaded.body) == len(doc.body)
+
+
+# ---------------------------------------------------------------------------
+# load_tabular mime guard — parity with the load_document guard
+# ---------------------------------------------------------------------------
+
+
+def _sample_tabular() -> TabularDocument:
+    return TabularDocument(
+        metadata=DocumentMetadata(title="Test Table"),
+        tables=(
+            Table(
+                name="employees",
+                columns=(
+                    Column("name", ColumnType.TEXT),
+                    Column("department", ColumnType.TEXT),
+                ),
+                rows=(("Alice", "Engineering"), ("Bob", "Sales")),
+            ),
+        ),
+    )
+
+
+async def test_load_tabular_rejects_html_mime(tmp_path: Path) -> None:
+    """An HTML artifact passed to load_tabular must raise ArtifactMimeTypeError.
+
+    Before the guard was added in this change, HTML bodies reached
+    ``_tabular_from_json`` and surfaced as an opaque ``JSONDecodeError``
+    — agents had no idea what to do next.
+    """
+    runtime = _make_runtime(tmp_path)
+    context = KaosContext.create(session_id="test", runtime=runtime)
+
+    artifact_id = await _write_artifact(
+        runtime,
+        context,
+        vfs_path="raw/page.html",
+        payload=b"<!DOCTYPE html>\n<html><body><table><tr><td>x</td></tr></table></body></html>",
+        name="page",
+        mime_type="text/html",
+    )
+
+    with pytest.raises(ArtifactMimeTypeError) as exc_info:
+        await load_tabular(artifact_id, runtime)
+
+    msg = str(exc_info.value)
+    assert "text/html" in msg
+    assert "TabularDocument" in msg
+    assert exc_info.value.details.get("mime_type") == "text/html"
+    assert exc_info.value.details.get("artifact_id") == artifact_id
+
+
+async def test_load_tabular_rejects_html_when_mime_missing(tmp_path: Path) -> None:
+    """No mime + body starting with '<' should raise with the same hint."""
+    runtime = _make_runtime(tmp_path)
+    context = KaosContext.create(session_id="test", runtime=runtime)
+
+    artifact_id = await _write_artifact(
+        runtime,
+        context,
+        vfs_path="raw/untyped.bin",
+        payload=b"  \n<html><body>no mime declared</body></html>",
+        name="untyped-tabular",
+        mime_type=None,
+    )
+
+    # Clear any backend-inferred mime so we exercise the first-byte
+    # sniff branch, matching the parity test for load_document.
+    manifest = runtime.artifacts.get(artifact_id)
+    manifest.mime_type = None
+
+    with pytest.raises(ArtifactMimeTypeError) as exc_info:
+        await load_tabular(artifact_id, runtime)
+
+    msg = str(exc_info.value)
+    assert "TabularDocument" in msg
+    assert "starts with '<'" in msg
+    assert exc_info.value.details.get("mime_type") is None
+
+
+async def test_load_tabular_accepts_valid_json_artifact(tmp_path: Path) -> None:
+    """Regression: valid TabularDocument JSON artifacts must still load cleanly."""
+    runtime = _make_runtime(tmp_path)
+    context = KaosContext.create(session_id="test", runtime=runtime)
+
+    doc = _sample_tabular()
+    manifest = await store_tabular(doc, runtime, context, name="guard-regression-tabular")
+    # store_tabular writes application/json; guard must let it through.
+    assert manifest.mime_type == "application/json"
+
+    loaded = await load_tabular(manifest.artifact_id, runtime)
+    assert loaded.metadata.title == "Test Table"
+    assert len(loaded.tables) == 1
+    assert loaded.tables[0].name == "employees"
 
 
 # ---------------------------------------------------------------------------

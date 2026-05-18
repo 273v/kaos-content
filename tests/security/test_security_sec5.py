@@ -134,7 +134,10 @@ class TestLoadTabularSizeCap:
             pytest.fail("max_bytes=None must skip the cap")
         except Exception:
             pass  # validation error from minimal JSON — OK
-        runtime.artifacts.get.assert_not_called()
+        # Manifest IS still consulted for the load_tabular mime guard,
+        # even though the size cap is opted out — parity with the
+        # load_document equivalent above.
+        runtime.artifacts.get.assert_called_once()
 
 
 # ----- ArtifactTooLargeError class -----------------------------------------

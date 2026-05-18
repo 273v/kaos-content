@@ -32,16 +32,15 @@ if TYPE_CHECKING:
 # ``max_bytes=None`` to opt out of the cap.
 DEFAULT_LOAD_MAX_BYTES: int = 16 * 1024 * 1024
 
-# Mime types ``load_document`` will accept. A stored ``ContentDocument``
-# is always JSON (``store_document(format="json")`` writes
+# Mime types ``load_document`` and ``load_tabular`` will accept. A
+# stored ``ContentDocument`` / ``TabularDocument`` is always JSON
+# (``store_document(format="json")`` / ``store_tabular`` write
 # ``application/json``); ``application/x-ndjson`` is included so future
 # line-delimited variants don't have to special-case the guard. ``None``
 # (manifest had no recorded mime) is allowed because legacy artifacts
 # may be untyped — those fall through to a first-byte sniff after the
 # body is read.
-_LOAD_DOCUMENT_ACCEPTED_MIMES: frozenset[str] = frozenset(
-    {"application/json", "application/x-ndjson"}
-)
+_LOAD_JSON_ACCEPTED_MIMES: frozenset[str] = frozenset({"application/json", "application/x-ndjson"})
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +184,7 @@ async def load_document(
     manifest = runtime.artifacts.get(artifact_id)
 
     mime = getattr(manifest, "mime_type", None)
-    if mime is not None and mime not in _LOAD_DOCUMENT_ACCEPTED_MIMES:
+    if mime is not None and mime not in _LOAD_JSON_ACCEPTED_MIMES:
         raise ArtifactMimeTypeError(
             f"Artifact {artifact_id} is mime={mime}; load_document requires a "
             "serialized ContentDocument (JSON). "
@@ -453,10 +452,36 @@ async def load_tabular(
     Sec-5 (security finding #5) added ``max_bytes`` — see
     :func:`load_document` for the full rationale. The same cap and
     same opt-out semantics apply.
+
+    Raises:
+        ArtifactTooLargeError: If the artifact's manifest reports a
+            size larger than ``max_bytes``.
+        ArtifactMimeTypeError: If the artifact's manifest reports a
+            mime type other than ``application/json`` /
+            ``application/x-ndjson``, or if the mime is unknown but
+            the body's first non-whitespace byte is ``<``.
     """
     artifact_id = artifact_ref if isinstance(artifact_ref, str) else artifact_ref.artifact_id
+
+    # Always resolve the manifest — both the size cap and the mime
+    # guard need it, and a missing artifact should fail fast with the
+    # canonical kaos-core ``ResourceError`` rather than after a read.
+    manifest = runtime.artifacts.get(artifact_id)
+
+    mime = getattr(manifest, "mime_type", None)
+    if mime is not None and mime not in _LOAD_JSON_ACCEPTED_MIMES:
+        raise ArtifactMimeTypeError(
+            f"Artifact {artifact_id} is mime={mime}; load_tabular requires a "
+            "serialized TabularDocument (JSON). "
+            "How to fix: store the table via kaos-content's store_tabular() "
+            "(or the equivalent MCP write) so the artifact has "
+            "mime=application/json. "
+            "Alternative: read the raw bytes with kaos-core-artifact-read.",
+            artifact_id=artifact_id,
+            mime_type=mime,
+        )
+
     if max_bytes is not None:
-        manifest = runtime.artifacts.get(artifact_id)
         size = getattr(manifest, "size", None)
         if size is not None and size > max_bytes:
             raise ArtifactTooLargeError(
@@ -471,6 +496,25 @@ async def load_tabular(
                 ),
             )
     text = await runtime.artifacts.read_text(artifact_id)
+
+    # Sniff for HTML/XML when the manifest carried no mime hint. Cheap
+    # — we already paid for the read, and a leading ``<`` after
+    # whitespace would otherwise fall into ``json.loads`` for a noisy
+    # JSONDecodeError that doesn't tell the caller what to do next.
+    if mime is None:
+        stripped = text.lstrip()
+        if stripped.startswith("<"):
+            raise ArtifactMimeTypeError(
+                f"Artifact {artifact_id} has no mime_type and starts with '<' "
+                "(likely HTML/XML); load_tabular requires a serialized "
+                "TabularDocument (JSON). "
+                "How to fix: store the table via store_tabular() so the "
+                "artifact has mime=application/json. "
+                "Alternative: read the raw bytes with kaos-core-artifact-read.",
+                artifact_id=artifact_id,
+                mime_type=None,
+            )
+
     return _tabular_from_json(text)
 
 
