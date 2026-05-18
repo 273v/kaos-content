@@ -41,11 +41,10 @@ specific capabilities:
 | `[html]` | `lxml>=6.1` | HTML parser to AST |
 | `[images]` | `Pillow>=12.2`, `numpy` | `KaosImage` wrapper (PIL + DPI + provenance) |
 | `[layout]` | `numpy` only | Layout primitives (X-Y cut, projection profiles, clustering, valley detection). Operates on numeric coordinate arrays — no PIL, no raster IO. Install `[images]` separately if you also need to load source images. |
-| `[polars]` | `polars>=1.0` | `TabularDocument` ↔ Polars DataFrame |
-| `[duckdb]` | `duckdb>=1.0` | DuckDB SQL bridge for tabular |
+| `[polars]` | `polars>=1.5.0` | `TabularDocument` ↔ Polars DataFrame |
+| `[duckdb]` | `duckdb>=1.1.1` | DuckDB SQL bridge for tabular |
 | `[nlp]` | `kaos-nlp-core` | BM25 search + sentence-level units + `fuzzy_binary` / `minhash` dedup levels |
-| `[mcp]` | `kaos-mcp` | MCP tool registration |
-| `[transformers]` | `kaos-nlp-transformers>=0.2.0a3` | Dense embedding + cross-encoder retrieval (`SearchableDocument(retrieval='embeddings'|'hybrid')`, `SearchableCorpus`, token-aware `SectionChunker(max_tokens=...)`) AND the embedding step of `SemanticDedupLevel`. Pure-Rust backend under the hood — `libonnxruntime` is statically linked into the cdylib, so no Python `onnxruntime` install. |
+| `[transformers]` | `kaos-nlp-transformers>=0.2.0a2` | Dense embedding + cross-encoder retrieval (`SearchableDocument(retrieval='embeddings'|'hybrid')`, `SearchableCorpus`, token-aware `SectionChunker(max_tokens=...)`) AND the embedding step of `SemanticDedupLevel`. Pure-Rust backend under the hood — `libonnxruntime` is statically linked into the cdylib, so no Python `onnxruntime` install. |
 | `[clustering]` | `scipy>=1.14.1` | The clustering step of `SemanticDedupLevel` (hierarchical agglomerative on cosine distance). Pair with `[transformers]` to actually run the level — both extras are required at `find_clusters` time. Without them the `COMPREHENSIVE` and `OCR_AWARE` presets gracefully degrade to lexical-only. |
 | `[dedup-perceptual]` | `imagehash` | Perceptual page-image dedup (`PerceptualHashLevel`). For embedding-based semantic dedup, install `kaos-content[transformers,clustering]` to enable `SemanticDedupLevel` (KNT-602 0.1.0a3 — the level lives natively in this package now, no longer registered by an external plugin). |
 
@@ -120,7 +119,7 @@ The package is built around nine composable primitives.
 
 | Aspect | |
 |---|---|
-| **Python** | 3.13, 3.14 (CI runs both, including the 3.14t free-threaded build) |
+| **Python** | 3.13, 3.14, 3.15 pre-release (CI runs all three on linux-x64; 3.13 on macOS-arm64 and Windows-x64). 3.14t free-threaded is intentionally skipped until the dependency ecosystem ships wheels for it. |
 | **OS** | Linux, macOS, Windows (pure-Python wheel; no native code) |
 | **Maturity** | Alpha (`0.1.0a1`). The Block/Inline grammar is near-stable; serializer flags, traversal helpers, and the `[dedup-perceptual]` / `[layout]` APIs are subject to refinement during the alpha cycle. |
 | **Stability policy** | Pre-1.0: minor bumps (`0.x → 0.(x+1)`) may break behaviour; patch bumps are additive only. Every change is documented in [`CHANGELOG.md`](CHANGELOG.md). The MCP tool surface and the safe-by-default serializer/parser/SQL contracts are public API. |
@@ -148,8 +147,10 @@ model.
 
 ## MCP tools
 
-`kaos-content` registers seven MCP tools through
-`kaos_content.tools.register_content_tools(runtime)`:
+`kaos-content` registers 17 MCP tools through
+`kaos_content.tools.register_content_tools(runtime)` (count enforced by
+[`tests/unit/test_tools.py::TestRegistration`](tests/unit/test_tools.py)
+to prevent README drift):
 
 | Tool | What it does |
 |---|---|
@@ -160,6 +161,16 @@ model.
 | `kaos-content-search-table` | Case-insensitive substring search inside a `TabularDocument` |
 | `kaos-content-extract-section` | Pull a section by heading ref into a standalone document |
 | `kaos-content-extract-page` | Pull a single page (requires page provenance) |
+| `kaos-content-context-window` | Expand a node ref into a structural context window |
+| `kaos-content-dedup-semantic` | Lexical / semantic dedup over a corpus of artifacts |
+| `kaos-content-stats` | Per-document statistical summary (counts, structure, pages) |
+| `kaos-content-sentences-with-dates` | Yield sentences containing typed date entities |
+| `kaos-content-sentences-with-money` | Yield sentences containing typed money entities |
+| `kaos-content-sentences-with-percents` | Yield sentences containing typed percent entities |
+| `kaos-content-sentences-with-durations` | Yield sentences containing typed duration entities |
+| `kaos-content-sentences-with-numbers` | Yield sentences containing typed numeric entities |
+| `kaos-content-corpus-summarize` | Build / refresh `DocumentSummary` for each artifact in a corpus |
+| `kaos-content-corpus-narrow` | BM25-rank a corpus by query against per-document summaries |
 
 ## Configuration
 
