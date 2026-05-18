@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`numbering_label: str | None` on `Paragraph`, `Heading`, and
+  `ListItem`.** Carries the rendered visible numeral from the source
+  document (e.g. `"11."`, `"(a)"`, `"Section 11."`, `"11(a)(i)"`) so
+  serializers and downstream consumers can emit / cite the exact label
+  an attorney sees on the page. Word's auto-numbering stores the
+  visible numeral as `numbering.xml` + `numPr` + a running counter
+  rather than inline in the run text; the kaos-office DOCX reader will
+  resolve the counter and populate this field in a follow-up release.
+  `DocumentBuilder.heading()`, `.paragraph()`, and `.begin_list_item()`
+  accept a keyword-only `numbering_label` argument. Default `None`
+  preserves existing behavior for AST-constructed documents and for
+  legacy JSON payloads serialized before this field existed.
+  See `kaos-modules/docs/plans/docx-numbering-resolution.md` for the
+  full design.
+
 ## [0.1.0a11] — 2026-05-18
 
 ### Added

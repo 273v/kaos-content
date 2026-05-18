@@ -252,6 +252,89 @@ class TestNesting:
         assert isinstance(div, Div)
         assert div.attr.kv["role"] == "exhibit"
 
+
+class TestBuilderNumberingLabel:
+    """``numbering_label`` threads through the builder on heading,
+    paragraph, and begin_list_item, so DOCX readers (and any other
+    caller that knows the visible numeral) can attach it as the AST is
+    constructed.
+    """
+
+    def test_heading_default_none(self) -> None:
+        doc = DocumentBuilder().heading(1, "Title").build()
+        h = doc.body[0]
+        assert isinstance(h, Heading)
+        assert h.numbering_label is None
+
+    def test_heading_with_label(self) -> None:
+        doc = DocumentBuilder().heading(2, "GOVERNING LAW", numbering_label="Section 11.").build()
+        h = doc.body[0]
+        assert isinstance(h, Heading)
+        assert h.numbering_label == "Section 11."
+
+    def test_paragraph_default_none(self) -> None:
+        doc = DocumentBuilder().paragraph("just text").build()
+        p = doc.body[0]
+        assert isinstance(p, Paragraph)
+        assert p.numbering_label is None
+
+    def test_paragraph_with_label(self) -> None:
+        doc = DocumentBuilder().paragraph("body", numbering_label="11.1").build()
+        p = doc.body[0]
+        assert isinstance(p, Paragraph)
+        assert p.numbering_label == "11.1"
+
+    def test_list_item_default_none(self) -> None:
+        doc = (
+            DocumentBuilder()
+            .begin_list(ordered=True)
+            .begin_list_item()
+            .paragraph("a")
+            .end()
+            .end()
+            .build()
+        )
+        ol = doc.body[0]
+        assert isinstance(ol, OrderedList)
+        item = ol.children[0]
+        assert isinstance(item, ListItem)
+        assert item.numbering_label is None
+
+    def test_list_item_with_label(self) -> None:
+        doc = (
+            DocumentBuilder()
+            .begin_list(ordered=True)
+            .begin_list_item(numbering_label="(a)")
+            .paragraph("clause a")
+            .end()
+            .begin_list_item(numbering_label="(b)")
+            .paragraph("clause b")
+            .end()
+            .end()
+            .build()
+        )
+        ol = doc.body[0]
+        assert isinstance(ol, OrderedList)
+        labels = [item.numbering_label for item in ol.children if isinstance(item, ListItem)]
+        assert labels == ["(a)", "(b)"]
+
+    def test_list_item_checked_and_label_compose(self) -> None:
+        doc = (
+            DocumentBuilder()
+            .begin_list()
+            .begin_list_item(checked=True, numbering_label="(i)")
+            .paragraph("done")
+            .end()
+            .end()
+            .build()
+        )
+        bl = doc.body[0]
+        assert isinstance(bl, BulletList)
+        item = bl.children[0]
+        assert isinstance(item, ListItem)
+        assert item.checked is True
+        assert item.numbering_label == "(i)"
+
     def test_figure(self) -> None:
         b = DocumentBuilder()
         doc = (

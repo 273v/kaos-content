@@ -13,18 +13,37 @@ from kaos_content.model.table import TableSection
 
 
 class Paragraph(BaseBlock):
-    """Block containing inline content."""
+    """Block containing inline content.
+
+    ``numbering_label`` carries the rendered numbering label as it
+    appears in the source document — e.g. ``"11."`` for
+    ``Section 11. GOVERNING LAW``, ``"(a)"`` for a sub-clause. Word
+    stores the visible numeral as ``numbering.xml`` + ``numPr`` plus a
+    running counter; the DOCX reader resolves the counter and stores
+    the rendered string here so serializers and downstream consumers
+    can emit / cite the exact label. ``None`` means "no source label"
+    (the default for AST-constructed paragraphs).
+    """
 
     node_type: Literal["paragraph"] = "paragraph"
     children: tuple[Inline, ...]
+    numbering_label: str | None = None
 
 
 class Heading(BaseBlock):
-    """Section heading, depth 1-6."""
+    """Section heading, depth 1-6.
+
+    ``numbering_label`` carries the rendered numbering label as it
+    appears in the source document. See
+    :attr:`Paragraph.numbering_label`. Legal documents frequently number
+    headings via Word's auto-numbering machinery rather than as list
+    items, so this field is intentionally first-class on ``Heading`` too.
+    """
 
     node_type: Literal["heading"] = "heading"
     depth: int
     children: tuple[Inline, ...]
+    numbering_label: str | None = None
 
     @model_validator(mode="after")
     def _check_depth(self) -> Heading:
@@ -57,11 +76,21 @@ class BulletList(BaseBlock):
 
 
 class ListItem(BaseBlock):
-    """Single item in a list. May contain nested blocks."""
+    """Single item in a list. May contain nested blocks.
+
+    ``numbering_label`` carries the rendered numbering label as it
+    appears in the source document. See
+    :attr:`Paragraph.numbering_label`. When set, serializers emit the
+    label verbatim instead of recomputing a marker from the item's
+    position in its parent list. ``None`` falls back to the
+    position-based marker (decimal for :class:`OrderedList`, bullet for
+    :class:`BulletList`).
+    """
 
     node_type: Literal["list_item"] = "list_item"
     checked: bool | None = None
     children: tuple[Block, ...]
+    numbering_label: str | None = None
 
 
 class DefinitionList(BaseBlock):
