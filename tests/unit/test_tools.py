@@ -526,6 +526,7 @@ class TestSearchDocumentTool:
         assert "text" in first
         assert "score" in first
         assert "block_ref" in first
+        assert first["path"] == ["Introduction", "Background"]
 
     async def test_search_no_results(self, tmp_path: Path) -> None:
         runtime = _make_runtime(tmp_path)
@@ -802,6 +803,7 @@ class TestContextWindowTool:
         assert not result.isError, result.text
         data = result.require_structured()
         assert data["window_block_refs"] == ["#/body/2"]
+        assert data["path"] == ["Introduction", "Background"]
 
     async def test_window_invalid_ref(self, tmp_path: Path) -> None:
         from kaos_content.tools import ContextWindowTool

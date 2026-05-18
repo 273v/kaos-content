@@ -891,6 +891,9 @@ def _search_tf(
         if preview_length > 0 and len(display) > preview_length:
             display = display[:preview_length] + "..."
 
+        section_title = _resolve_section(view, pv.section_ref)
+        ancestors = heading_paths.get(pv.section_ref, ()) if pv.section_ref else ()
+        full_path = (*ancestors, section_title) if section_title else ancestors
         all_scored.append(
             SearchResult(
                 text=display,
@@ -898,8 +901,9 @@ def _search_tf(
                 block_ref=pv.block_ref,
                 page=pv.page,
                 section_ref=pv.section_ref,
-                section_title=_resolve_section(view, pv.section_ref),
-                heading_path=heading_paths.get(pv.section_ref, ()) if pv.section_ref else (),
+                section_title=section_title,
+                heading_path=ancestors,
+                path=full_path,
             )
         )
 

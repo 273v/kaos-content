@@ -211,6 +211,25 @@ class TestBm25CorpusWide:
             block_idx = int(r.block_ref.rsplit("/", 1)[-1])
             assert 0 <= block_idx < len(doc.body)
 
+    def test_path_full_breadcrumb_nested(self) -> None:
+        from kaos_content.indexing import SearchableCorpus
+
+        doc = ContentDocument(
+            metadata=DocumentMetadata(source=SourceRef(uri="nested.pdf")),
+            body=(
+                _heading("Chapter 1", depth=1, uri="nested.pdf"),
+                _heading("Section 1.1", depth=2, uri="nested.pdf"),
+                _para("needle clause", uri="nested.pdf"),
+            ),
+        )
+        corpus = SearchableCorpus([doc])
+        hit = corpus.search("needle").results[0]
+        assert hit.heading_path == ("Chapter 1",)
+        assert hit.section_title == "Section 1.1"
+        assert hit.path == ("Chapter 1", "Section 1.1")
+        assert hit.doc_index == 0
+        assert hit.doc_uri == "nested.pdf"
+
     def test_doc_for_row_inverse(self, small_corpus: list[ContentDocument]) -> None:
         from kaos_content.indexing import SearchableCorpus
 

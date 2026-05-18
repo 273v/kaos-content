@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from kaos_content import (
+    BlockQuote,
     ContentDocument,
     DocumentBuilder,
     DocumentMetadata,
@@ -293,6 +294,14 @@ class TestBlockPath:
             "Section 1.1",
             "Subsection 1.1.1",
         )
+
+    def test_descendant_ref_uses_containing_top_level_block(self) -> None:
+        doc = _doc(
+            _h(1, "Section A"),
+            BlockQuote(children=(_p("Nested quoted text."),)),
+        )
+        view = DocumentView(doc)
+        assert view.block_path("#/body/1/children/0") == ("Section A",)
 
     def test_preamble_returns_empty(self) -> None:
         doc = _doc(_p("Preamble paragraph"), _h(1, "Body"), _p("real content"))

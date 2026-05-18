@@ -107,6 +107,23 @@ class TestSearchableDocumentParagraph:
         assert breach[0].section_ref is not None
         assert breach[0].section_title == "Remedies"
 
+    def test_path_full_breadcrumb_nested(self) -> None:
+        from kaos_content.indexing import SearchableDocument
+
+        doc = ContentDocument(
+            metadata=DocumentMetadata(title="Nested"),
+            body=(
+                _heading("Chapter 1", 1, 1),
+                _heading("Section 1.1", 2, 1),
+                _para("needle clause", 1),
+            ),
+        )
+        sdoc = SearchableDocument(doc, level="paragraph")
+        hit = sdoc.search("needle").results[0]
+        assert hit.heading_path == ("Chapter 1",)
+        assert hit.section_title == "Section 1.1"
+        assert hit.path == ("Chapter 1", "Section 1.1")
+
     def test_no_char_offsets_at_paragraph_level(self, multi_section_doc: ContentDocument) -> None:
         from kaos_content.indexing import SearchableDocument
 

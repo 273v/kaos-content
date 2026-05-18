@@ -148,6 +148,22 @@ class TestSearchDocumentTF:
         # And reduces to heading_path + section_title.
         assert hit.path == (*hit.heading_path, hit.section_title)
 
+    def test_path_full_breadcrumb_tf_fallback(self, nested_section_doc: ContentDocument) -> None:
+        """The no-kaos-nlp-core fallback obeys the same path contract."""
+        from kaos_content import search as search_mod
+
+        results = search_mod._search_tf(
+            nested_section_doc,
+            "alpaca-cardamom-zircon",
+            top_k=10,
+            preview_length=200,
+        )
+        assert results.results
+        hit = results.results[0]
+        assert hit.heading_path == ("Chapter 1", "Section 1.1")
+        assert hit.section_title == "Subsection 1.1.1"
+        assert hit.path == ("Chapter 1", "Section 1.1", "Subsection 1.1.1")
+
     def test_path_top_level_section(self, multi_section_doc: ContentDocument) -> None:
         results = search_document(multi_section_doc, "breach")
         breach_results = [r for r in results.results if "breach" in r.text.lower()]

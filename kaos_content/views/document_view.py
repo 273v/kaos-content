@@ -198,7 +198,7 @@ class DocumentView:
         _ = self.sections
         if self._block_to_section is None:
             return ()
-        section_heading_ref = self._block_to_section.get(block_ref)
+        section_heading_ref = self._section_ref_for_block_ref(block_ref)
         if section_heading_ref is None:
             return ()
         if self._section_ancestors is None:
@@ -445,6 +445,18 @@ class DocumentView:
                     self._block_to_section[ref] = sv.heading_ref
             self._map_blocks_to_sections(sv.subsections)
 
+    def _section_ref_for_block_ref(self, block_ref: str) -> str | None:
+        """Return the containing section ref for top-level or descendant refs."""
+        if self._block_to_section is None:
+            return None
+        section_ref = self._block_to_section.get(block_ref)
+        if section_ref is not None or block_ref in self._block_to_section:
+            return section_ref
+        parts = block_ref.split("/")
+        if len(parts) >= 3 and parts[0] == "#" and parts[1] == "body":
+            return self._block_to_section.get(f"#/body/{parts[2]}")
+        return None
+
     def _flatten_sections(
         self,
         sections: tuple[SectionView, ...],
@@ -520,9 +532,7 @@ class DocumentView:
                 # OCR confidence on scanned PDFs) into the paragraph view
                 # so retrieval can refuse to cite low-quality passages.
                 confidence = block.provenance.confidence if block.provenance else None
-                section_ref = (
-                    self._block_to_section.get(ref) if self._block_to_section is not None else None
-                )
+                section_ref = self._section_ref_for_block_ref(ref)
                 result.append(
                     ParagraphView(
                         block_ref=ref,
