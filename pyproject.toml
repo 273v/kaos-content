@@ -41,7 +41,7 @@ dependencies = [
   # without forcing every install to use --pre.
   # kaos-content 0.1.0a2 consumes kaos_core.security.is_safe_url; the
   # 0.1.0a4 floor pins the new module's debut.
-  "kaos-core>=0.1.0rc1,<0.2",
+  "kaos-core>=0.1.0,<0.2",
   "pydantic>=2.11.0",
   "uuid6>=2024.7.10; python_version < '3.14'",
 ]
@@ -71,7 +71,7 @@ html = ["lxml>=6.1.0"]                          # >=6.1 closes CVE-2026-41066
 # what users actually need on supported Python minors.
 images = ["Pillow>=12.2.0", "numpy>=2.1.0"]
 layout = ["numpy>=2.1.0"]
-nlp = ["kaos-nlp-core>=0.1.0a1,<0.2"]
+nlp = ["kaos-nlp-core>=0.1.0,<0.2"]
 polars = ["polars>=1.5.0"]
 duckdb = ["duckdb>=1.1.1"]
 # Dense embeddings + cross-encoder reranking via Rust ort cdylib
@@ -79,7 +79,7 @@ duckdb = ["duckdb>=1.1.1"]
 # SearchableCorpus, EmbeddingChunker (max_tokens). 0.2.0a2 is the
 # floor that ships the Iterable[str] embed signature, max_seq_len /
 # count_tokens, and the gil_used = false cdylib.
-transformers = ["kaos-nlp-transformers>=0.1.0a7,<0.2"]
+transformers = ["kaos-nlp-transformers>=0.1.0rc1,<0.2"]
 # Hierarchical agglomerative clustering on cosine distance, used by
 # SemanticDedupLevel (KNT-602 Option A — moved here from
 # kaos-nlp-transformers in 0.1.0a3). Pair with [transformers] to
@@ -105,8 +105,8 @@ dedup-perceptual = ["imagehash>=4.3.0"]
 # embed, count_tokens / max_seq_len, and the gil_used = false cdylib
 # this repo's chunker / SearchableCorpus rely on.
 dev = [
-  "kaos-nlp-core>=0.1.0a1,<0.2",
-  "kaos-nlp-transformers>=0.1.0a7,<0.2",
+  "kaos-nlp-core>=0.1.0,<0.2",
+  "kaos-nlp-transformers>=0.1.0rc1,<0.2",
   # KC2 (0.1.0a7 prep): kaos-office is now published on PyPI (0.1.0a2
   # is the floor that exposes parse_docx in the public API). Pinning
   # it as a dev dep lets the cross-module live tests
