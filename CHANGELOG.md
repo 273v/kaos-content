@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] — 2026-05-20
+
+### Changed — WU-L of 0.1.0 GA plan
+
+- 0.1.0 GA — WU-L of the 0.1.0 GA plan. First stable release of
+  `kaos-content`. The public API is frozen for the 0.1.x line: no
+  breaking changes will land until 0.2.0. Runtime `kaos-core` pin
+  raised from `>=0.1.0rc1,<0.2` to `>=0.1.0,<0.2`. `[nlp]` extra +
+  dev-group `kaos-nlp-core` raised from `>=0.1.0a1,<0.2` to
+  `>=0.1.0,<0.2`. `[transformers]` extra + dev-group
+  `kaos-nlp-transformers` raised from `>=0.1.0a7,<0.2` to
+  `>=0.1.0rc1,<0.2` (rc1 is on PyPI; 0.1.0 follows in this same WU-L
+  wave and will resolve correctly). No source changes vs 0.1.0rc1.
+
+
 ## [0.1.0rc1] — 2026-05-20
 
 WU-J of the 0.1.0 GA plan
