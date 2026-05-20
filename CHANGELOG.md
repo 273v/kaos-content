@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0rc1] — 2026-05-20
+
+WU-J of the 0.1.0 GA plan
+(`kaos-modules/docs/plans/2026-05-20-0.1.0-ga-plan.md`): release
+candidate; pin floor raised to `>=0.1.0rc1,<0.2` across kaos-* deps;
+freezes the public API surface ahead of GA. No source changes vs
+0.1.0a12.
+
+### Changed
+
+- Runtime `kaos-core` pin raised to `>=0.1.0rc1,<0.2` (was
+  `>=0.1.0a10,<0.2`). The `<0.2` ceiling protects against legacy
+  `0.2.0a*` lines leaking into resolution.
+- `[transformers]` extra pin raised to
+  `kaos-nlp-transformers>=0.1.0a7,<0.2` (was `>=0.2.0a2,<0.3`).
+  The 0.2.0a* line is retired per the kaos-nlp-transformers
+  0.1.0a7 release notes (WU-F.8 / GA decision #1 — stay on 0.1.x);
+  the `<0.2` ceiling matches.
+
+### TODO
+
+- The `[transformers]` extra pin floor will tighten to
+  `kaos-nlp-transformers>=0.1.0rc1,<0.2` in a follow-up patch once
+  kaos-nlp-transformers ships its own 0.1.0rc1 later in WU-J.
+
 ## [0.1.0a12] — 2026-05-18
 
 ### Added
