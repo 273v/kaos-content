@@ -685,7 +685,11 @@ class SearchTableTool(KaosTool):
                 ParameterSchema(
                     name="query",
                     type="string",
-                    description="Search query text (case-insensitive substring match).",
+                    description=(
+                        "Search query text (case-insensitive substring match). "
+                        "Must be non-empty — pass at least one search term."
+                    ),
+                    constraints={"minLength": 1},
                 ),
                 ParameterSchema(
                     name="table_name",
