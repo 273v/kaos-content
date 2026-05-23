@@ -63,9 +63,5 @@ def test_dedup_levels_import_without_numpy() -> None:
         if blocker in sys.meta_path:
             sys.meta_path.remove(blocker)
         # Let the next test re-import cleanly with numpy available.
-        for mod in [
-            name
-            for name in sys.modules
-            if name.startswith("kaos_content.dedup.levels")
-        ]:
+        for mod in [name for name in sys.modules if name.startswith("kaos_content.dedup.levels")]:
             del sys.modules[mod]
