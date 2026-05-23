@@ -8,7 +8,7 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/kaos-content)](https://pypi.org/project/kaos-content/)
 [![Python](https://img.shields.io/pypi/pyversions/kaos-content)](https://pypi.org/project/kaos-content/)
 [![License](https://img.shields.io/pypi/l/kaos-content)](https://github.com/273v/kaos-content/blob/main/LICENSE)
-[![CI](https://github.com/273v/kaos-content/actions/workflows/ci.yml/badge.svg)](https://github.com/273v/kaos-content/actions/workflows/ci.yml)
+[![quality](https://github.com/273v/kaos-content/actions/workflows/quality.yml/badge.svg)](https://github.com/273v/kaos-content/actions/workflows/quality.yml)
 
 `kaos-content` is the canonical document model for KAOS — a typed
 Block/Inline AST with provenance, annotations, views, and round-trip
