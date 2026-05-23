@@ -39,17 +39,23 @@ def test_dedup_levels_import_without_numpy() -> None:
     documented-but-broken lazy-import promise in
     ``kaos_content/dedup/levels/__init__.py:3-7``.
     """
-    # Snapshot + isolate the import state so other tests aren't affected
-    # by the meta-path block.
+    # Snapshot every numpy/scipy/kaos_content.dedup.levels module so we can
+    # restore the prior state after the block — a half-cleared numpy in
+    # sys.modules leaves `numpy.typing` (re-)imports recursing forever for
+    # any later test that pulls scipy.
     blocker = _BlockNumpy()
+    snapshot: dict[str, object] = {
+        name: mod
+        for name, mod in sys.modules.items()
+        if name == "numpy"
+        or name.startswith("numpy.")
+        or name == "scipy"
+        or name.startswith("scipy.")
+        or name.startswith("kaos_content.dedup.levels")
+    }
+    for name in snapshot:
+        del sys.modules[name]
     sys.meta_path.insert(0, blocker)
-    # Drop cached modules so the import path re-executes under the block.
-    for mod in [
-        name
-        for name in sys.modules
-        if name.startswith("kaos_content.dedup.levels") or name == "numpy"
-    ]:
-        del sys.modules[mod]
 
     try:
         levels = importlib.import_module("kaos_content.dedup.levels")
@@ -62,6 +68,17 @@ def test_dedup_levels_import_without_numpy() -> None:
     finally:
         if blocker in sys.meta_path:
             sys.meta_path.remove(blocker)
-        # Let the next test re-import cleanly with numpy available.
-        for mod in [name for name in sys.modules if name.startswith("kaos_content.dedup.levels")]:
-            del sys.modules[mod]
+        # Drop any modules imported under the block, then restore the
+        # snapshot so subsequent tests see numpy/scipy/kaos_content.dedup
+        # exactly as they were before this test ran.
+        for name in [
+            n
+            for n in sys.modules
+            if n.startswith("kaos_content.dedup.levels")
+            or n == "numpy"
+            or n.startswith("numpy.")
+            or n == "scipy"
+            or n.startswith("scipy.")
+        ]:
+            del sys.modules[name]
+        sys.modules.update(snapshot)
