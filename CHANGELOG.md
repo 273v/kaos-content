@@ -7,13 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+### Fixed
 
-- `pyproject.toml` classifier bumped from `Development Status :: 3 - Alpha`
-  to `Development Status :: 5 - Production/Stable` to reflect the
-  0.1.0 GA release (WU-L #543) that froze the public API for the
-  0.1.x line. Closes audit-04/kaos-content.md Family D (classifier drift).
-
+- **`kaos_content.dedup.levels` is now importable on a minimal install.**
+  `kaos_content/dedup/levels/semantic.py:27` previously imported
+  `numpy` at module scope, breaking `from kaos_content.dedup.levels
+  import ...` on installs without the `[clustering]` / `[images]` /
+  `[layout]` extras — even though docstrings on the same file
+  (`semantic.py:9-14`) and `__init__.py:3-7` both promised lazy imports.
+  Moved `import numpy as np` into the `find_clusters` lazy-import
+  block alongside scipy and kaos-nlp-transformers, with an actionable
+  install hint when missing. `tests/unit/test_dedup_levels_base_install.py`
+  pins the base-install contract by routing `numpy` through a
+  meta-path blocker. Closes audit-04/kaos-content.md F-001.
+>>>>>>> 9f1b029 (fix(dedup): lazy-import numpy so kaos_content.dedup.levels imports clean)
 
 ## [0.1.0] — 2026-05-20
 
