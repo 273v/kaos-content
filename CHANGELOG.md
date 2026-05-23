@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-23
+
+audit-04 remediation: F-001 numpy lazy-import, README CI badge, classifier.
+
 ### Fixed
 
 - **`kaos_content.dedup.levels` is now importable on a minimal install.**
