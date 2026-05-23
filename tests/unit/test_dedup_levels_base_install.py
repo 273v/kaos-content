@@ -23,6 +23,7 @@ from __future__ import annotations
 import importlib
 import importlib.abc
 import sys
+from types import ModuleType
 
 
 class _BlockNumpy(importlib.abc.MetaPathFinder):
@@ -44,7 +45,7 @@ def test_dedup_levels_import_without_numpy() -> None:
     # sys.modules leaves `numpy.typing` (re-)imports recursing forever for
     # any later test that pulls scipy.
     blocker = _BlockNumpy()
-    snapshot: dict[str, object] = {
+    snapshot: dict[str, ModuleType] = {
         name: mod
         for name, mod in sys.modules.items()
         if name == "numpy"
