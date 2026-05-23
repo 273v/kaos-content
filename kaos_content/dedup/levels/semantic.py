@@ -24,12 +24,12 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, ClassVar
 
-import numpy as np
 from kaos_core.logging import get_logger
 
 from kaos_content.dedup.types import DedupCluster, DedupDocument, DedupLevel
 
 if TYPE_CHECKING:
+    import numpy as np  # noqa: F401  (used by `find_clusters` lazy import)
     from kaos_nlp_transformers.settings import KaosNLPTransformersSettings
 
 logger = get_logger(__name__)
@@ -109,6 +109,23 @@ class SemanticDedupLevel(DedupLevel):
         self,
         documents: list[DedupDocument],
     ) -> list[DedupCluster]:
+        # numpy is gated through the same install path as scipy (the
+        # `[clustering]` extra pulls scipy which depends on numpy).
+        # Lazy-import so `import kaos_content.dedup.levels` (and the
+        # eager re-export in `levels/__init__.py:16-21`) stays importable
+        # without numpy installed. Closes audit-04/kaos-content.md F-001.
+        try:
+            import numpy as np
+        except ImportError as exc:
+            msg = (
+                "SemanticDedupLevel requires numpy. "
+                "Fix: pip install kaos-content[clustering] (which pulls "
+                "scipy + numpy together) or pip install numpy>=2.0. "
+                "Alternative: use kaos_content.dedup.levels.minhash for "
+                "non-semantic near-duplicate detection without numpy."
+            )
+            raise ImportError(msg) from exc
+
         # scipy is gated on the kaos-content `[clustering]` extra. Raise an
         # actionable install-hint error rather than letting the import fail
         # with a cryptic ModuleNotFoundError.
