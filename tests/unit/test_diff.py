@@ -341,6 +341,52 @@ class TestMixedChanges:
         assert RevisionType.DELETION in kinds
 
 
+class TestInlineObjectsPreserved:
+    """Inline objects in an *unchanged* paragraph survive the diff intact.
+
+    (A *changed* paragraph is rebuilt from plain text — that formatting-loss
+    case is pinned separately in TestWordDiffFidelity.)
+    """
+
+    def test_hyperlink_in_unchanged_paragraph_preserved(self) -> None:
+        from kaos_content.model.inlines import Link
+
+        link_para = Paragraph(
+            children=(
+                Text(value="See "),
+                Link(url="https://example.com", children=(Text(value="the terms"),)),
+                Text(value=" for detail."),
+            )
+        )
+        a = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(link_para, Paragraph(children=(Text(value="old tail."),))),
+        )
+        b = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(link_para, Paragraph(children=(Text(value="new tail."),))),
+        )
+        redline = compare_documents(a, b)
+        assert any(type(n).__name__ == "Link" for block in redline.body for n in walk(block))
+
+    def test_image_in_unchanged_paragraph_preserved(self) -> None:
+        from kaos_content.model.inlines import Image
+
+        img_para = Paragraph(
+            children=(Image(src="data:image/png;base64,iVBORw0KGgo="), Text(value=" caption"))
+        )
+        a = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(img_para, Paragraph(children=(Text(value="alpha"),))),
+        )
+        b = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(img_para, Paragraph(children=(Text(value="beta"),))),
+        )
+        redline = compare_documents(a, b)
+        assert any(type(n).__name__ == "Image" for block in redline.body for n in walk(block))
+
+
 class TestStructuralContent:
     """Round-trip invariant holds for nested / structural blocks."""
 
