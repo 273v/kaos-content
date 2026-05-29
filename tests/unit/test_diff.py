@@ -9,7 +9,7 @@ delete, word-level edit, move) are asserted on top of that invariant.
 from __future__ import annotations
 
 from kaos_content import compare_documents
-from kaos_content.model.blocks import Paragraph
+from kaos_content.model.blocks import Heading, Paragraph
 from kaos_content.model.document import ContentDocument, DocumentMetadata
 from kaos_content.model.inlines import Text
 from kaos_content.revision import (
@@ -189,6 +189,72 @@ class TestTables:
         redline = compare_documents(original, revised, author="T")
         assert Revisions.from_document(redline)
         _assert_roundtrip(original, revised)
+
+
+class TestEmptyAndDegenerate:
+    def test_empty_to_empty_has_no_revisions(self) -> None:
+        empty = ContentDocument(metadata=DocumentMetadata(title=""), body=())
+        redline = compare_documents(empty, empty)
+        assert len(Revisions.from_document(redline)) == 0
+
+    def test_empty_to_one_block_is_insertion(self) -> None:
+        empty = ContentDocument(metadata=DocumentMetadata(title=""), body=())
+        one = _doc("Brand new content.")
+        redline = _assert_roundtrip(empty, one)
+        assert [r.change_type for r in Revisions.from_document(redline)] == [RevisionType.INSERTION]
+
+    def test_one_block_to_empty_is_deletion(self) -> None:
+        empty = ContentDocument(metadata=DocumentMetadata(title=""), body=())
+        one = _doc("Will be removed.")
+        redline = _assert_roundtrip(one, empty)
+        assert [r.change_type for r in Revisions.from_document(redline)] == [RevisionType.DELETION]
+
+    def test_empty_paragraph_gains_text(self) -> None:
+        a = ContentDocument(metadata=DocumentMetadata(title=""), body=(Paragraph(children=()),))
+        b = _doc("Now it has words.")
+        # An empty paragraph and a filled one are dissimilar → full replace.
+        _assert_roundtrip(a, b)
+
+    def test_whitespace_only_change_round_trips(self) -> None:
+        a = _doc("alpha beta")
+        b = _doc("alpha  beta")
+        # Normalization collapses whitespace for *alignment*, but the exact
+        # revised text must still be reproducible by accept_all.
+        _assert_roundtrip(a, b)
+
+
+class TestDeterminism:
+    def test_same_inputs_produce_same_content(self) -> None:
+        a = _doc("the cat sat on the mat", "second clause unchanged")
+        b = _doc("the dog sat on the mat", "second clause unchanged")
+        r1 = compare_documents(a, b, author="X")
+        r2 = compare_documents(a, b, author="X")
+        # Node UUIDs differ by design; content (text + change types + rev ids)
+        # must be identical run to run.
+        revs1 = Revisions.from_document(r1)
+        revs2 = Revisions.from_document(r2)
+        assert [(x.change_type, x.id, x.text) for x in revs1] == [
+            (x.change_type, x.id, x.text) for x in revs2
+        ]
+        assert _body_text(r1) == _body_text(r2)
+
+
+class TestBlockTypeChange:
+    def test_heading_to_paragraph_same_text_is_currently_no_op(self) -> None:
+        """Documents a known limitation: alignment keys on text only.
+
+        Changing a heading to a paragraph with identical text aligns as
+        ``equal`` and produces no revision (the text didn't change, only the
+        block style). A future style-change feature (pPrChange) would model
+        it; this test pins today's behavior so a change is intentional.
+        """
+        a = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(Heading(depth=1, children=(Text(value="Governing Law"),)),),
+        )
+        b = _doc("Governing Law")
+        redline = compare_documents(a, b)
+        assert len(Revisions.from_document(redline)) == 0
 
 
 class TestLargerDocument:

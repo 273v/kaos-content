@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Tracked changes inside footnotes are now visible to the revision
+  API.** `Revisions.from_document` walked `body` but not the `footnotes`
+  dict, and `_apply` (accept/reject) only rewrote `body`, so footnote
+  tracked changes were neither reported nor resolved. Both now handle
+  footnotes. Footnotes are common in contracts and briefs.
+- **Whitespace-only paragraph edits are now captured by
+  `compare_documents`.** Block alignment normalizes whitespace, so two
+  paragraphs differing only in spacing aligned as "equal" and the change
+  was dropped — `reject_all` could not reproduce the original's spacing.
+  Equal-but-raw-different paragraph pairs are now word-diffed, keeping the
+  `accept_all`/`reject_all` round-trip exact.
 - **Tracked changes inside table cells are now visible to the revision
   API.** `Revisions.from_document` walked `children` / `content` but not a
   Table's head/bodies/foot → rows → cells, so `rev-*` wrappers in table

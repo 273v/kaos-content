@@ -193,7 +193,20 @@ def compare_documents(
     body: list[Block] = []
     for tag, i1, i2, j1, j2 in opcodes:
         if tag == "equal":
-            body.extend(rev_blocks[j1:j2])
+            # Keys match after whitespace normalization, but the raw text
+            # can still differ (e.g. "a b" vs "a  b"). Word-diff those
+            # paragraph pairs so the change is captured and reject_all can
+            # reproduce the original; otherwise keep the revised block as-is.
+            for oi, rj in zip(range(i1, i2), range(j1, j2), strict=True):
+                ob, rb = orig_blocks[oi], rev_blocks[rj]
+                if (
+                    ob.node_type in _INLINE_CONTENT_BLOCKS
+                    and rb.node_type in _INLINE_CONTENT_BLOCKS
+                    and extract_text(ob) != extract_text(rb)
+                ):
+                    body.append(_word_diff_block(ob, rb, ids, settings))
+                else:
+                    body.append(rb)
         elif tag == "delete":
             for oi in range(i1, i2):
                 body.append(_emit_deleted(orig_blocks[oi], oi, ids, move_from, settings))

@@ -147,6 +147,12 @@ class Revisions:
         items: list[Revision] = []
         for i, block in enumerate(document.body):
             _collect(block, f"#/body/{i}", items)
+        # Footnotes live outside ``body`` (in the ``footnotes`` dict) but can
+        # carry their own tracked changes; walk them too so accept/reject see
+        # them (those transforms derive their id sets from this walk).
+        for fid, blocks in document.footnotes.items():
+            for i, block in enumerate(blocks):
+                _collect(block, f"#/footnotes/{fid}/{i}", items)
         by_id = {r.id: r for r in items if r.id}
         return cls(items=tuple(items), by_id_index=by_id)
 
@@ -350,6 +356,14 @@ def _apply(
 
     new_body = _transform_block_tuple(doc.body, accept_ids=accept_ids, reject_ids=reject_ids)
 
+    # Footnotes carry their own revisions (see ``from_document``); resolve
+    # them with the same transform so accept/reject don't leave footnote
+    # tracked changes dangling.
+    new_footnotes = {
+        fid: _transform_block_tuple(blocks, accept_ids=accept_ids, reject_ids=reject_ids)
+        for fid, blocks in doc.footnotes.items()
+    }
+
     # Filter annotations: drop TRACKED_CHANGE entries whose revision_id we processed
     processed = accept_ids | reject_ids
     new_annotations = tuple(
@@ -358,7 +372,9 @@ def _apply(
         if a.type != AnnotationType.TRACKED_CHANGE or a.body.get("revision_id") not in processed
     )
 
-    return doc.model_copy(update={"body": new_body, "annotations": new_annotations})
+    return doc.model_copy(
+        update={"body": new_body, "footnotes": new_footnotes, "annotations": new_annotations}
+    )
 
 
 def _transform_block_tuple(
