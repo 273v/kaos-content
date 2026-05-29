@@ -11,13 +11,14 @@ from __future__ import annotations
 from kaos_content import compare_documents
 from kaos_content.model.blocks import Heading, Paragraph
 from kaos_content.model.document import ContentDocument, DocumentMetadata
-from kaos_content.model.inlines import Text
+from kaos_content.model.inlines import Strong, Text
 from kaos_content.revision import (
     Revisions,
     RevisionType,
     accept_all,
     reject_all,
 )
+from kaos_content.traversal import walk
 from kaos_content.traversal.visitor import extract_text
 
 
@@ -255,6 +256,89 @@ class TestBlockTypeChange:
         b = _doc("Governing Law")
         redline = compare_documents(a, b)
         assert len(Revisions.from_document(redline)) == 0
+
+
+class TestWordDiffFidelity:
+    def test_unicode_smart_quotes_round_trip(self) -> None:
+        a = _doc("He said “hello world” today.")
+        b = _doc("He said “goodbye world” today.")
+        redline = _assert_roundtrip(a, b)
+        # The unchanged smart-quoted span survives in the final text.
+        assert "“goodbye world”" in _body_text(accept_all(redline))
+
+    def test_cjk_round_trip(self) -> None:
+        a = _doc("合同条款一 unchanged tail")
+        b = _doc("合同条款二 unchanged tail")
+        _assert_roundtrip(a, b)
+
+    def test_punctuation_only_change(self) -> None:
+        a = _doc("Payment is due, on receipt.")
+        b = _doc("Payment is due on receipt.")
+        _assert_roundtrip(a, b)
+
+    def test_single_word_edit_keeps_surrounding_text_unmarked(self) -> None:
+        a = _doc("The party shall deliver the goods within ten days of order.")
+        b = _doc("The party shall deliver the goods within thirty days of order.")
+        redline = _assert_roundtrip(a, b)
+        revs = Revisions.from_document(redline)
+        # Only the changed word produces revisions; the long shared remainder
+        # is plain text, so the revision text is small.
+        joined = " ".join(r.text for r in revs)
+        assert "ten" in joined
+        assert "thirty" in joined
+        assert "deliver" not in joined  # untouched word not marked
+
+    def test_inline_formatting_lost_in_changed_paragraph_is_pinned(self) -> None:
+        """Known limitation: a *changed* paragraph is rebuilt from plain text,
+        so inline run formatting (Strong/Emphasis/Link) inside it is dropped.
+        Unchanged paragraphs keep full fidelity. Pinned so a future
+        improvement is a deliberate change, not an accident.
+        """
+        a = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(
+                Paragraph(
+                    children=(
+                        Text(value="The "),
+                        Strong(children=(Text(value="material"),)),
+                        Text(value=" term is alpha."),
+                    )
+                ),
+            ),
+        )
+        b = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(
+                Paragraph(
+                    children=(
+                        Text(value="The "),
+                        Strong(children=(Text(value="material"),)),
+                        Text(value=" term is beta."),
+                    )
+                ),
+            ),
+        )
+        redline = _assert_roundtrip(a, b)
+        # Text round-trips, but Strong is not preserved in the changed para.
+        assert not any(type(n).__name__ == "Strong" for block in redline.body for n in walk(block))
+
+
+class TestMixedChanges:
+    def test_insert_delete_and_edit_in_one_diff(self) -> None:
+        original = _doc(
+            "Intro paragraph stays the same.",
+            "This clause will be deleted entirely.",
+            "The fee shall be ten dollars per unit.",
+        )
+        revised = _doc(
+            "Intro paragraph stays the same.",
+            "The fee shall be twelve dollars per unit.",
+            "A newly added closing paragraph.",
+        )
+        redline = _assert_roundtrip(original, revised)
+        kinds = {r.change_type for r in Revisions.from_document(redline)}
+        assert RevisionType.INSERTION in kinds
+        assert RevisionType.DELETION in kinds
 
 
 class TestLargerDocument:
