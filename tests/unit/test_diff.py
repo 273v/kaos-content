@@ -341,6 +341,34 @@ class TestMixedChanges:
         assert RevisionType.DELETION in kinds
 
 
+class TestThresholdsAndPathologicalInput:
+    def test_similarity_threshold_extremes_round_trip(self) -> None:
+        a = _doc("the quick brown fox jumps over")
+        b = _doc("the quick red fox leaps over")
+        for st in (0.0, 1.0):
+            redline = compare_documents(a, b, similarity_threshold=st)
+            assert _body_text(accept_all(redline)) == _body_text(b)
+            assert _body_text(reject_all(redline)) == _body_text(a)
+
+    def test_move_threshold_extremes_round_trip(self) -> None:
+        a = _doc("clause one here", "tail paragraph")
+        b = _doc("tail paragraph", "clause one here")
+        for mt in (0.0, 1.0):
+            redline = compare_documents(a, b, move_threshold=mt)
+            assert _body_text(accept_all(redline)) == _body_text(b)
+            assert _body_text(reject_all(redline)) == _body_text(a)
+
+    def test_very_long_no_space_token(self) -> None:
+        base = "x" * 5000
+        _assert_roundtrip(_doc(base + "a"), _doc(base + "b"))
+
+    def test_whitespace_only_paragraphs(self) -> None:
+        _assert_roundtrip(_doc("   "), _doc("  \t "))
+
+    def test_empty_string_paragraphs(self) -> None:
+        _assert_roundtrip(_doc("", ""), _doc("", "x"))
+
+
 class TestCompareCarriesRevisedLayers:
     """compare_documents carries the revised doc's annotation/footnote layers.
 
