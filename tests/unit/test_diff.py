@@ -341,6 +341,50 @@ class TestMixedChanges:
         assert RevisionType.DELETION in kinds
 
 
+class TestCompareCarriesRevisedLayers:
+    """compare_documents carries the revised doc's annotation/footnote layers.
+
+    The engine diffs ``body``; metadata, annotations, and footnotes come from
+    the revised document. A comment on the revised side must survive, and
+    footnotes pass through unchanged (footnote *content* is not diffed).
+    """
+
+    def test_revised_comment_annotation_preserved(self) -> None:
+        from kaos_content.model.annotation import (
+            Annotation,
+            AnnotationTarget,
+            AnnotationType,
+        )
+
+        comment = Annotation(
+            id="c1",
+            type=AnnotationType.COMMENT,
+            targets=(AnnotationTarget(node_ref="#/body/0"),),
+            body={"text": "please review"},
+        )
+        revised = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(Paragraph(children=(Text(value="changed text here"),)),),
+            annotations=(comment,),
+        )
+        original = _doc("original text here")
+        redline = compare_documents(original, revised)
+        comments = [a for a in redline.annotations if a.type == AnnotationType.COMMENT]
+        assert len(comments) == 1
+        assert comments[0].body.get("text") == "please review"
+
+    def test_revised_footnotes_pass_through(self) -> None:
+        revised = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(Paragraph(children=(Text(value="body changed"),)),),
+            footnotes={"1": (Paragraph(children=(Text(value="a footnote"),)),)},
+        )
+        original = _doc("body original")
+        redline = compare_documents(original, revised)
+        assert "1" in redline.footnotes
+        assert extract_text(redline.footnotes["1"][0]) == "a footnote"
+
+
 class TestInlineObjectsPreserved:
     """Inline objects in an *unchanged* paragraph survive the diff intact.
 
