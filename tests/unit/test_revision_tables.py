@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from kaos_content.model.blocks import Paragraph, Table
 from kaos_content.model.document import ContentDocument, DocumentMetadata
-from kaos_content.model.inlines import Text
+from kaos_content.model.inlines import Inline, Text
 from kaos_content.model.table import Cell, Row, TableSection
 from kaos_content.revision import (
     Revisions,
@@ -25,8 +25,8 @@ from kaos_content.revision import (
 from kaos_content.traversal.visitor import extract_text
 
 
-def _doc_with_cell_inline(span: object, *, lead: str = "before ") -> ContentDocument:
-    cell = Cell(content=(Paragraph(children=(Text(value=lead), span)),))  # type: ignore[arg-type]
+def _doc_with_cell_inline(span: Inline, *, lead: str = "before ") -> ContentDocument:
+    cell = Cell(content=(Paragraph(children=(Text(value=lead), span)),))
     table = Table(bodies=(TableSection(rows=(Row(cells=(cell,)),)),))
     return ContentDocument(metadata=DocumentMetadata(title=""), body=(table,))
 

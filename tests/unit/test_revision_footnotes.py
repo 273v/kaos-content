@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from kaos_content.model.blocks import Paragraph
 from kaos_content.model.document import ContentDocument, DocumentMetadata
-from kaos_content.model.inlines import Text
+from kaos_content.model.inlines import Inline, Text
 from kaos_content.revision import (
     Revisions,
     RevisionType,
@@ -23,11 +23,11 @@ from kaos_content.revision import (
 from kaos_content.traversal.visitor import extract_text
 
 
-def _doc_with_footnote(span: object) -> ContentDocument:
+def _doc_with_footnote(span: Inline) -> ContentDocument:
     return ContentDocument(
         metadata=DocumentMetadata(title=""),
         body=(Paragraph(children=(Text(value="Body paragraph."),)),),
-        footnotes={"1": (Paragraph(children=(Text(value="See "), span)),)},  # type: ignore[arg-type]
+        footnotes={"1": (Paragraph(children=(Text(value="See "), span)),)},
     )
 
 
