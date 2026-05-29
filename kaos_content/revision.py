@@ -69,6 +69,19 @@ class RevisionType(StrEnum):
     MOVE_TO = "move_to"
 
 
+class RevisionView(StrEnum):
+    """A way of rendering a document that carries tracked changes.
+
+    - ``ORIGINAL``: the document as it was before any change (reject all).
+    - ``FINAL``: the document with every change applied (accept all).
+    - ``MARKUP``: the document as-is, with rev-* wrappers preserved.
+    """
+
+    ORIGINAL = "original"
+    FINAL = "final"
+    MARKUP = "markup"
+
+
 # Map rev-* class names → RevisionType.
 _CLASS_TO_TYPE: dict[str, RevisionType] = {
     "rev-ins": RevisionType.INSERTION,
@@ -537,6 +550,19 @@ def reject_all(doc: ContentDocument) -> ContentDocument:
     return _apply(doc, accept_ids=set(), reject_ids={r.id for r in revs if r.id})
 
 
+def view(doc: ContentDocument, mode: RevisionView) -> ContentDocument:
+    """Render ``doc`` in one of the three revision views.
+
+    ``ORIGINAL`` rejects every change, ``FINAL`` accepts every change, and
+    ``MARKUP`` returns the document unchanged (rev-* wrappers preserved).
+    """
+    if mode is RevisionView.ORIGINAL:
+        return reject_all(doc)
+    if mode is RevisionView.FINAL:
+        return accept_all(doc)
+    return doc
+
+
 def accept_by_author(doc: ContentDocument, author: str) -> ContentDocument:
     """Accept every revision by a given author; leave others in place."""
     revs = Revisions.from_document(doc)
@@ -700,6 +726,82 @@ def make_block_deletion(
     children = _as_tuple(content)
     rid = revision_id if revision_id is not None else "0"
     attr = _revision_attr("deletion", author=author, date=date, revision_id=rid)
+    return Div(attr=attr, children=children)
+
+
+def make_inline_move_from(
+    content: Any | tuple[Any, ...],
+    *,
+    author: str,
+    move_name: str,
+    date: datetime | None = None,
+    revision_id: str | None = None,
+) -> Any:
+    """Wrap inline content in a ``Span`` with rev-move-from metadata.
+
+    ``move_name`` pairs this move-from with its matching move-to. Word
+    uses the shared name to render the two halves as a single move.
+    """
+    from kaos_content.model.inlines import Span
+
+    children = _as_tuple(content)
+    rid = revision_id if revision_id is not None else "0"
+    attr = _revision_attr(
+        "move_from", author=author, date=date, revision_id=rid, move_name=move_name
+    )
+    return Span(attr=attr, children=children)
+
+
+def make_inline_move_to(
+    content: Any | tuple[Any, ...],
+    *,
+    author: str,
+    move_name: str,
+    date: datetime | None = None,
+    revision_id: str | None = None,
+) -> Any:
+    """Wrap inline content in a ``Span`` with rev-move-to metadata."""
+    from kaos_content.model.inlines import Span
+
+    children = _as_tuple(content)
+    rid = revision_id if revision_id is not None else "0"
+    attr = _revision_attr("move_to", author=author, date=date, revision_id=rid, move_name=move_name)
+    return Span(attr=attr, children=children)
+
+
+def make_block_move_from(
+    content: Any | tuple[Any, ...],
+    *,
+    author: str,
+    move_name: str,
+    date: datetime | None = None,
+    revision_id: str | None = None,
+) -> Any:
+    """Wrap one or more block nodes in a ``Div`` with rev-move-from metadata."""
+    from kaos_content.model.blocks import Div
+
+    children = _as_tuple(content)
+    rid = revision_id if revision_id is not None else "0"
+    attr = _revision_attr(
+        "move_from", author=author, date=date, revision_id=rid, move_name=move_name
+    )
+    return Div(attr=attr, children=children)
+
+
+def make_block_move_to(
+    content: Any | tuple[Any, ...],
+    *,
+    author: str,
+    move_name: str,
+    date: datetime | None = None,
+    revision_id: str | None = None,
+) -> Any:
+    """Wrap block content in a ``Div`` with rev-move-to metadata."""
+    from kaos_content.model.blocks import Div
+
+    children = _as_tuple(content)
+    rid = revision_id if revision_id is not None else "0"
+    attr = _revision_attr("move_to", author=author, date=date, revision_id=rid, move_name=move_name)
     return Div(attr=attr, children=children)
 
 

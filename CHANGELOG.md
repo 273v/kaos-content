@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Redline engine: `kaos_content.compare_documents`.** Compare two
+  `ContentDocument` trees and get back a redlined document whose
+  differences are expressed as tracked-change `rev-*` wrappers (the same
+  shapes the DOCX reader/writer already speak). Block-level alignment,
+  word-level inline diffing of changed paragraphs, and optional move
+  detection (a deleted block that closely matches an inserted block
+  elsewhere is paired as `rev-move-from` / `rev-move-to`). Pure Python,
+  no new dependencies. The result round-trips: `accept_all` reproduces
+  the revised document, `reject_all` the original. Format-agnostic —
+  works for any two documents (DOCX, PDF, HTML).
+- **`RevisionView` enum and `kaos_content.revision.view()`** convenience
+  for rendering a tracked-change document as `ORIGINAL` / `FINAL` /
+  `MARKUP`.
+- **Move authoring helpers** in `kaos_content.revision`:
+  `make_inline_move_from` / `make_inline_move_to` /
+  `make_block_move_from` / `make_block_move_to`, completing the
+  authoring surface alongside the existing insertion/deletion helpers.
+
 ## [0.1.2] — 2026-05-25
 
 Dependabot batch.
