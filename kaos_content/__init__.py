@@ -27,6 +27,7 @@ from kaos_content.dedup import (
     DedupPipeline,
     DedupReport,
 )
+from kaos_content.diff import compare_documents
 from kaos_content.errors import KaosContentError, SearchError, SerializationError
 from kaos_content.model import (
     Admonition,
@@ -104,7 +105,7 @@ from kaos_content.normalize import (
     normalize_text,
 )
 from kaos_content.parsers import parse_plain_text
-from kaos_content.revision import Revision, Revisions, RevisionType
+from kaos_content.revision import Revision, Revisions, RevisionType, RevisionView
 from kaos_content.search import SearchResult, SearchResults, search_document, search_tabular
 from kaos_content.serializers import (
     serialize_csv,
@@ -316,6 +317,7 @@ __all__ = [
     "RawInline",
     "Revision",
     "RevisionType",
+    "RevisionView",
     "Revisions",
     "Row",
     "SearchError",
@@ -346,6 +348,7 @@ __all__ = [
     "apply",
     "canonical_hash",
     "column_type_from_python",
+    "compare_documents",
     "compose",
     "content_hash",
     "document_annotations_by_type",

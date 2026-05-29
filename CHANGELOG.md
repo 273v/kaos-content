@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-05-29
+
+Redline engine: `compare_documents` plus revision read/transform fixes
+surfaced by edge-case testing.
+
+### Fixed
+
+- **Revision date comparisons no longer crash on mixed timezone-awareness.**
+  A date-only ``w:date`` parsed to a naive datetime; comparing it against a
+  timezone-aware ``at_time`` / ``between`` argument (or vice versa) raised
+  ``TypeError: can't compare offset-naive and offset-aware datetimes`` and
+  crashed the time-machine, and ``sorted_by_date`` could fail on a document
+  mixing both. Parsed dates are now normalized to aware-UTC and caller-
+  supplied datetimes are normalized at the boundary, so all comparisons are
+  total.
+- **Tracked changes inside footnotes are now visible to the revision
+  API.** `Revisions.from_document` walked `body` but not the `footnotes`
+  dict, and `_apply` (accept/reject) only rewrote `body`, so footnote
+  tracked changes were neither reported nor resolved. Both now handle
+  footnotes. Footnotes are common in contracts and briefs.
+- **Whitespace-only paragraph edits are now captured by
+  `compare_documents`.** Block alignment normalizes whitespace, so two
+  paragraphs differing only in spacing aligned as "equal" and the change
+  was dropped — `reject_all` could not reproduce the original's spacing.
+  Equal-but-raw-different paragraph pairs are now word-diffed, keeping the
+  `accept_all`/`reject_all` round-trip exact.
+- **Tracked changes inside table cells are now visible to the revision
+  API.** `Revisions.from_document` walked `children` / `content` but not a
+  Table's head/bodies/foot → rows → cells, so `rev-*` wrappers in table
+  cells were missed — and because `accept_all` / `reject_all` /
+  `accept_by_author` / `at_time` derive their id sets from that walk,
+  table-cell revisions were also left unresolved (e.g. a rejected
+  insertion in a cell survived). `_collect` now recurses into tables,
+  matching the existing `_transform_table` behavior. Tables are pervasive
+  in contracts, so this matters for redline review and resolution.
+
+### Added
+
+- **Redline engine: `kaos_content.compare_documents`.** Compare two
+  `ContentDocument` trees and get back a redlined document whose
+  differences are expressed as tracked-change `rev-*` wrappers (the same
+  shapes the DOCX reader/writer already speak). Block-level alignment,
+  word-level inline diffing of changed paragraphs, and optional move
+  detection (a deleted block that closely matches an inserted block
+  elsewhere is paired as `rev-move-from` / `rev-move-to`). Pure Python,
+  no new dependencies. The result round-trips: `accept_all` reproduces
+  the revised document, `reject_all` the original. Format-agnostic —
+  works for any two documents (DOCX, PDF, HTML). Move detection is
+  bounded: when the deleted×inserted candidate space exceeds a budget it
+  is skipped (relocations then surface as delete + insert) and logged —
+  never a silent stall — and a length prefilter avoids needless
+  similarity work on size-mismatched pairs.
+- **`RevisionView` enum and `kaos_content.revision.view()`** convenience
+  for rendering a tracked-change document as `ORIGINAL` / `FINAL` /
+  `MARKUP`.
+- **Move authoring helpers** in `kaos_content.revision`:
+  `make_inline_move_from` / `make_inline_move_to` /
+  `make_block_move_from` / `make_block_move_to`, completing the
+  authoring surface alongside the existing insertion/deletion helpers.
+
 ## [0.1.2] — 2026-05-25
 
 Dependabot batch.

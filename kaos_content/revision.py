@@ -52,7 +52,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
@@ -67,6 +67,19 @@ class RevisionType(StrEnum):
     DELETION = "deletion"
     MOVE_FROM = "move_from"
     MOVE_TO = "move_to"
+
+
+class RevisionView(StrEnum):
+    """A way of rendering a document that carries tracked changes.
+
+    - ``ORIGINAL``: the document as it was before any change (reject all).
+    - ``FINAL``: the document with every change applied (accept all).
+    - ``MARKUP``: the document as-is, with rev-* wrappers preserved.
+    """
+
+    ORIGINAL = "original"
+    FINAL = "final"
+    MARKUP = "markup"
 
 
 # Map rev-* class names → RevisionType.
@@ -134,6 +147,12 @@ class Revisions:
         items: list[Revision] = []
         for i, block in enumerate(document.body):
             _collect(block, f"#/body/{i}", items)
+        # Footnotes live outside ``body`` (in the ``footnotes`` dict) but can
+        # carry their own tracked changes; walk them too so accept/reject see
+        # them (those transforms derive their id sets from this walk).
+        for fid, blocks in document.footnotes.items():
+            for i, block in enumerate(blocks):
+                _collect(block, f"#/footnotes/{fid}/{i}", items)
         by_id = {r.id: r for r in items if r.id}
         return cls(items=tuple(items), by_id_index=by_id)
 
@@ -162,7 +181,13 @@ class Revisions:
         return out
 
     def between(self, start: datetime | None = None, end: datetime | None = None) -> list[Revision]:
-        """All revisions whose date falls in [start, end] (inclusive)."""
+        """All revisions whose date falls in [start, end] (inclusive).
+
+        ``start`` / ``end`` may be naive or aware; they are normalized to
+        aware-UTC to match revision dates, so mixing the two never raises.
+        """
+        start = _ensure_aware(start)
+        end = _ensure_aware(end)
         out: list[Revision] = []
         for r in self.items:
             if r.date is None:
@@ -215,8 +240,29 @@ def _node_revision_class(node: Any) -> str | None:
     return None
 
 
+def _ensure_aware(dt: datetime | None) -> datetime | None:
+    """Normalize a datetime to timezone-aware (assume UTC when naive).
+
+    Revision dates come from heterogeneous sources: Word writes full
+    ISO-8601 with a ``Z`` (aware), but a date-only ``w:date`` or a
+    caller-supplied naive datetime is naive. Mixing the two in a ``<`` /
+    ``<=`` comparison raises ``TypeError``, which used to crash
+    ``at_time`` / ``between`` / ``sorted_by_date``. Coercing every date to
+    aware-UTC makes comparisons total and order-stable.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 def _parse_date(raw: str | None) -> datetime | None:
-    """Parse an ISO-8601 date-time string (possibly with trailing 'Z')."""
+    """Parse an ISO-8601 date-time string (possibly with trailing 'Z').
+
+    Always returns a timezone-aware datetime (naive inputs are treated as
+    UTC) so downstream date comparisons never mix naive and aware values.
+    """
     if not raw:
         return None
     # Normalize trailing Z → +00:00 for fromisoformat
@@ -224,7 +270,7 @@ def _parse_date(raw: str | None) -> datetime | None:
     if normalized.endswith("Z"):
         normalized = normalized[:-1] + "+00:00"
     try:
-        return datetime.fromisoformat(normalized)
+        return _ensure_aware(datetime.fromisoformat(normalized))
     except ValueError:
         return None
 
@@ -254,6 +300,15 @@ def _collect(node: Any, ref: str, out: list[Revision]) -> None:
         out.append(_make_revision(node, ref, rev_class))
         return
 
+    # Tables don't hold their content under ``children`` / ``content`` —
+    # it lives in head/bodies/foot → rows → cells → content. Without this
+    # branch, revisions inside table cells are invisible to the typed read
+    # API, which also breaks accept_all / reject_all (they derive their id
+    # sets from this walk). Mirrors ``_transform_table``.
+    if getattr(node, "node_type", None) == "table":
+        _collect_table(node, ref, out)
+        return
+
     children = getattr(node, "children", None)
     content = getattr(node, "content", None)
     if children:
@@ -262,6 +317,27 @@ def _collect(node: Any, ref: str, out: list[Revision]) -> None:
     if content:
         for i, c in enumerate(content):
             _collect(c, f"{ref}/content/{i}", out)
+
+
+def _collect_table(table: Any, ref: str, out: list[Revision]) -> None:
+    """Walk a Table's caption + head/bodies/foot sections for revisions."""
+    caption = getattr(table, "caption", None)
+    if caption is not None:
+        for i, b in enumerate(getattr(caption, "body", ()) or ()):
+            _collect(b, f"{ref}/caption/body/{i}", out)
+
+    def _collect_section(section: Any, section_ref: str) -> None:
+        if section is None:
+            return
+        for ri, row in enumerate(getattr(section, "rows", ()) or ()):
+            for ci, cell in enumerate(getattr(row, "cells", ()) or ()):
+                for bi, block in enumerate(getattr(cell, "content", ()) or ()):
+                    _collect(block, f"{section_ref}/{ri}/cells/{ci}/content/{bi}", out)
+
+    _collect_section(getattr(table, "head", None), f"{ref}/head/rows")
+    for si, section in enumerate(getattr(table, "bodies", ()) or ()):
+        _collect_section(section, f"{ref}/bodies/{si}/rows")
+    _collect_section(getattr(table, "foot", None), f"{ref}/foot/rows")
 
 
 # ----------------------------------------------------------------------------
@@ -307,6 +383,14 @@ def _apply(
 
     new_body = _transform_block_tuple(doc.body, accept_ids=accept_ids, reject_ids=reject_ids)
 
+    # Footnotes carry their own revisions (see ``from_document``); resolve
+    # them with the same transform so accept/reject don't leave footnote
+    # tracked changes dangling.
+    new_footnotes = {
+        fid: _transform_block_tuple(blocks, accept_ids=accept_ids, reject_ids=reject_ids)
+        for fid, blocks in doc.footnotes.items()
+    }
+
     # Filter annotations: drop TRACKED_CHANGE entries whose revision_id we processed
     processed = accept_ids | reject_ids
     new_annotations = tuple(
@@ -315,7 +399,9 @@ def _apply(
         if a.type != AnnotationType.TRACKED_CHANGE or a.body.get("revision_id") not in processed
     )
 
-    return doc.model_copy(update={"body": new_body, "annotations": new_annotations})
+    return doc.model_copy(
+        update={"body": new_body, "footnotes": new_footnotes, "annotations": new_annotations}
+    )
 
 
 def _transform_block_tuple(
@@ -537,6 +623,19 @@ def reject_all(doc: ContentDocument) -> ContentDocument:
     return _apply(doc, accept_ids=set(), reject_ids={r.id for r in revs if r.id})
 
 
+def view(doc: ContentDocument, mode: RevisionView) -> ContentDocument:
+    """Render ``doc`` in one of the three revision views.
+
+    ``ORIGINAL`` rejects every change, ``FINAL`` accepts every change, and
+    ``MARKUP`` returns the document unchanged (rev-* wrappers preserved).
+    """
+    if mode is RevisionView.ORIGINAL:
+        return reject_all(doc)
+    if mode is RevisionView.FINAL:
+        return accept_all(doc)
+    return doc
+
+
 def accept_by_author(doc: ContentDocument, author: str) -> ContentDocument:
     """Accept every revision by a given author; leave others in place."""
     revs = Revisions.from_document(doc)
@@ -558,7 +657,11 @@ def at_time(doc: ContentDocument, t: datetime) -> ContentDocument:
     - If ``revision.date <= t``: the change had been made, accept it.
     - If ``revision.date > t`` or ``date is None``: the change had not
       yet happened, reject it.
+
+    ``t`` may be naive or aware; it is normalized to aware-UTC to match
+    revision dates, so the comparison never raises on mixed tz-awareness.
     """
+    t = _ensure_aware(t) or t
     revs = Revisions.from_document(doc)
     accept_ids: set[str] = set()
     reject_ids: set[str] = set()
@@ -700,6 +803,82 @@ def make_block_deletion(
     children = _as_tuple(content)
     rid = revision_id if revision_id is not None else "0"
     attr = _revision_attr("deletion", author=author, date=date, revision_id=rid)
+    return Div(attr=attr, children=children)
+
+
+def make_inline_move_from(
+    content: Any | tuple[Any, ...],
+    *,
+    author: str,
+    move_name: str,
+    date: datetime | None = None,
+    revision_id: str | None = None,
+) -> Any:
+    """Wrap inline content in a ``Span`` with rev-move-from metadata.
+
+    ``move_name`` pairs this move-from with its matching move-to. Word
+    uses the shared name to render the two halves as a single move.
+    """
+    from kaos_content.model.inlines import Span
+
+    children = _as_tuple(content)
+    rid = revision_id if revision_id is not None else "0"
+    attr = _revision_attr(
+        "move_from", author=author, date=date, revision_id=rid, move_name=move_name
+    )
+    return Span(attr=attr, children=children)
+
+
+def make_inline_move_to(
+    content: Any | tuple[Any, ...],
+    *,
+    author: str,
+    move_name: str,
+    date: datetime | None = None,
+    revision_id: str | None = None,
+) -> Any:
+    """Wrap inline content in a ``Span`` with rev-move-to metadata."""
+    from kaos_content.model.inlines import Span
+
+    children = _as_tuple(content)
+    rid = revision_id if revision_id is not None else "0"
+    attr = _revision_attr("move_to", author=author, date=date, revision_id=rid, move_name=move_name)
+    return Span(attr=attr, children=children)
+
+
+def make_block_move_from(
+    content: Any | tuple[Any, ...],
+    *,
+    author: str,
+    move_name: str,
+    date: datetime | None = None,
+    revision_id: str | None = None,
+) -> Any:
+    """Wrap one or more block nodes in a ``Div`` with rev-move-from metadata."""
+    from kaos_content.model.blocks import Div
+
+    children = _as_tuple(content)
+    rid = revision_id if revision_id is not None else "0"
+    attr = _revision_attr(
+        "move_from", author=author, date=date, revision_id=rid, move_name=move_name
+    )
+    return Div(attr=attr, children=children)
+
+
+def make_block_move_to(
+    content: Any | tuple[Any, ...],
+    *,
+    author: str,
+    move_name: str,
+    date: datetime | None = None,
+    revision_id: str | None = None,
+) -> Any:
+    """Wrap block content in a ``Div`` with rev-move-to metadata."""
+    from kaos_content.model.blocks import Div
+
+    children = _as_tuple(content)
+    rid = revision_id if revision_id is not None else "0"
+    attr = _revision_attr("move_to", author=author, date=date, revision_id=rid, move_name=move_name)
     return Div(attr=attr, children=children)
 
 
