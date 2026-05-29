@@ -341,6 +341,64 @@ class TestMixedChanges:
         assert RevisionType.DELETION in kinds
 
 
+class TestStructuralContent:
+    """Round-trip invariant holds for nested / structural blocks."""
+
+    def test_list_item_edit_round_trips(self) -> None:
+        from kaos_content.model.blocks import ListItem, OrderedList
+
+        def _li(text: str) -> ListItem:
+            return ListItem(children=(Paragraph(children=(Text(value=text),)),))
+
+        a = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(OrderedList(children=(_li("First item."), _li("Second item."))),),
+        )
+        b = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(OrderedList(children=(_li("First item."), _li("Second item revised."))),),
+        )
+        redline = _assert_roundtrip(a, b)
+        assert Revisions.from_document(redline)
+
+    def test_blockquote_edit_round_trips(self) -> None:
+        from kaos_content.model.blocks import BlockQuote
+
+        a = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(BlockQuote(children=(Paragraph(children=(Text(value="quoted alpha"),)),)),),
+        )
+        b = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(BlockQuote(children=(Paragraph(children=(Text(value="quoted beta"),)),)),),
+        )
+        _assert_roundtrip(a, b)
+
+    def test_repeated_identical_paragraphs_edit_one(self) -> None:
+        original = _doc(*["Same line." for _ in range(5)])
+        edited = ["Same line." for _ in range(5)]
+        edited[2] = "Changed line."
+        revised = _doc(*edited)
+        redline = _assert_roundtrip(original, revised)
+        assert Revisions.from_document(redline)
+
+    def test_many_empty_paragraphs_one_filled(self) -> None:
+        a = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=tuple(Paragraph(children=()) for _ in range(4)),
+        )
+        b = ContentDocument(
+            metadata=DocumentMetadata(title=""),
+            body=(
+                Paragraph(children=()),
+                Paragraph(children=(Text(value="added"),)),
+                Paragraph(children=()),
+                Paragraph(children=()),
+            ),
+        )
+        _assert_roundtrip(a, b)
+
+
 class TestLargerDocument:
     def test_many_paragraphs_few_edits_round_trip(self) -> None:
         base = [f"Section {i}: standard contractual language and provisions." for i in range(200)]
