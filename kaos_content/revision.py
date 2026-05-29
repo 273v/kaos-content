@@ -52,7 +52,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
@@ -181,7 +181,13 @@ class Revisions:
         return out
 
     def between(self, start: datetime | None = None, end: datetime | None = None) -> list[Revision]:
-        """All revisions whose date falls in [start, end] (inclusive)."""
+        """All revisions whose date falls in [start, end] (inclusive).
+
+        ``start`` / ``end`` may be naive or aware; they are normalized to
+        aware-UTC to match revision dates, so mixing the two never raises.
+        """
+        start = _ensure_aware(start)
+        end = _ensure_aware(end)
         out: list[Revision] = []
         for r in self.items:
             if r.date is None:
@@ -234,8 +240,29 @@ def _node_revision_class(node: Any) -> str | None:
     return None
 
 
+def _ensure_aware(dt: datetime | None) -> datetime | None:
+    """Normalize a datetime to timezone-aware (assume UTC when naive).
+
+    Revision dates come from heterogeneous sources: Word writes full
+    ISO-8601 with a ``Z`` (aware), but a date-only ``w:date`` or a
+    caller-supplied naive datetime is naive. Mixing the two in a ``<`` /
+    ``<=`` comparison raises ``TypeError``, which used to crash
+    ``at_time`` / ``between`` / ``sorted_by_date``. Coercing every date to
+    aware-UTC makes comparisons total and order-stable.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 def _parse_date(raw: str | None) -> datetime | None:
-    """Parse an ISO-8601 date-time string (possibly with trailing 'Z')."""
+    """Parse an ISO-8601 date-time string (possibly with trailing 'Z').
+
+    Always returns a timezone-aware datetime (naive inputs are treated as
+    UTC) so downstream date comparisons never mix naive and aware values.
+    """
     if not raw:
         return None
     # Normalize trailing Z → +00:00 for fromisoformat
@@ -243,7 +270,7 @@ def _parse_date(raw: str | None) -> datetime | None:
     if normalized.endswith("Z"):
         normalized = normalized[:-1] + "+00:00"
     try:
-        return datetime.fromisoformat(normalized)
+        return _ensure_aware(datetime.fromisoformat(normalized))
     except ValueError:
         return None
 
@@ -630,7 +657,11 @@ def at_time(doc: ContentDocument, t: datetime) -> ContentDocument:
     - If ``revision.date <= t``: the change had been made, accept it.
     - If ``revision.date > t`` or ``date is None``: the change had not
       yet happened, reject it.
+
+    ``t`` may be naive or aware; it is normalized to aware-UTC to match
+    revision dates, so the comparison never raises on mixed tz-awareness.
     """
+    t = _ensure_aware(t) or t
     revs = Revisions.from_document(doc)
     accept_ids: set[str] = set()
     reject_ids: set[str] = set()

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Revision date comparisons no longer crash on mixed timezone-awareness.**
+  A date-only ``w:date`` parsed to a naive datetime; comparing it against a
+  timezone-aware ``at_time`` / ``between`` argument (or vice versa) raised
+  ``TypeError: can't compare offset-naive and offset-aware datetimes`` and
+  crashed the time-machine, and ``sorted_by_date`` could fail on a document
+  mixing both. Parsed dates are now normalized to aware-UTC and caller-
+  supplied datetimes are normalized at the boundary, so all comparisons are
+  total.
 - **Tracked changes inside footnotes are now visible to the revision
   API.** `Revisions.from_document` walked `body` but not the `footnotes`
   dict, and `_apply` (accept/reject) only rewrote `body`, so footnote
