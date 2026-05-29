@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tracked changes inside table cells are now visible to the revision
+  API.** `Revisions.from_document` walked `children` / `content` but not a
+  Table's head/bodies/foot → rows → cells, so `rev-*` wrappers in table
+  cells were missed — and because `accept_all` / `reject_all` /
+  `accept_by_author` / `at_time` derive their id sets from that walk,
+  table-cell revisions were also left unresolved (e.g. a rejected
+  insertion in a cell survived). `_collect` now recurses into tables,
+  matching the existing `_transform_table` behavior. Tables are pervasive
+  in contracts, so this matters for redline review and resolution.
+
 ### Added
 
 - **Redline engine: `kaos_content.compare_documents`.** Compare two

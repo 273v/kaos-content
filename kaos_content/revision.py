@@ -267,6 +267,15 @@ def _collect(node: Any, ref: str, out: list[Revision]) -> None:
         out.append(_make_revision(node, ref, rev_class))
         return
 
+    # Tables don't hold their content under ``children`` / ``content`` —
+    # it lives in head/bodies/foot → rows → cells → content. Without this
+    # branch, revisions inside table cells are invisible to the typed read
+    # API, which also breaks accept_all / reject_all (they derive their id
+    # sets from this walk). Mirrors ``_transform_table``.
+    if getattr(node, "node_type", None) == "table":
+        _collect_table(node, ref, out)
+        return
+
     children = getattr(node, "children", None)
     content = getattr(node, "content", None)
     if children:
@@ -275,6 +284,27 @@ def _collect(node: Any, ref: str, out: list[Revision]) -> None:
     if content:
         for i, c in enumerate(content):
             _collect(c, f"{ref}/content/{i}", out)
+
+
+def _collect_table(table: Any, ref: str, out: list[Revision]) -> None:
+    """Walk a Table's caption + head/bodies/foot sections for revisions."""
+    caption = getattr(table, "caption", None)
+    if caption is not None:
+        for i, b in enumerate(getattr(caption, "body", ()) or ()):
+            _collect(b, f"{ref}/caption/body/{i}", out)
+
+    def _collect_section(section: Any, section_ref: str) -> None:
+        if section is None:
+            return
+        for ri, row in enumerate(getattr(section, "rows", ()) or ()):
+            for ci, cell in enumerate(getattr(row, "cells", ()) or ()):
+                for bi, block in enumerate(getattr(cell, "content", ()) or ()):
+                    _collect(block, f"{section_ref}/{ri}/cells/{ci}/content/{bi}", out)
+
+    _collect_section(getattr(table, "head", None), f"{ref}/head/rows")
+    for si, section in enumerate(getattr(table, "bodies", ()) or ()):
+        _collect_section(section, f"{ref}/bodies/{si}/rows")
+    _collect_section(getattr(table, "foot", None), f"{ref}/foot/rows")
 
 
 # ----------------------------------------------------------------------------
