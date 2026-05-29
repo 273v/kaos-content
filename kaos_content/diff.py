@@ -38,6 +38,7 @@ delete/insert blocks, not replace-internal leftovers.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -67,6 +68,21 @@ _INLINE_CONTENT_BLOCKS = frozenset({"paragraph", "heading"})
 # Split text into runs of whitespace and runs of non-whitespace so the
 # word-level diff aligns on word boundaries while preserving spacing.
 _WORD_RE = re.compile(r"\s+|\S+")
+
+# Move detection pairs every deleted block against every inserted block,
+# which is O(deleted x inserted) similarity ratios. On a document with
+# hundreds of insertions and deletions that product explodes, so we cap
+# the number of candidate pairs and, when exceeded, skip move detection
+# entirely (relocations then surface as delete + insert). The cap is
+# logged, never silent.
+_MOVE_PAIR_BUDGET = 50_000
+
+
+def _logger() -> logging.Logger:
+    """Lazily fetch the package logger (kept out of import-time work)."""
+    from kaos_core.logging import get_logger
+
+    return get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -216,15 +232,40 @@ def _plan_moves(
 
     move_from: dict[int, str] = {}
     move_to: dict[int, str] = {}
-    used_inserts: set[int] = set()
+    if not deleted or not inserted:
+        return move_from, move_to
 
+    # Bound the quadratic candidate space. When too large, skip move
+    # detection rather than stall — relocations remain correct, just shown
+    # as delete + insert. Logged so the downgrade is never silent.
+    if len(deleted) * len(inserted) > _MOVE_PAIR_BUDGET:
+        _logger().warning(
+            "compare_documents: move detection skipped — %d deleted x %d inserted "
+            "candidates exceed the %d-pair budget; relocations will appear as "
+            "delete + insert.",
+            len(deleted),
+            len(inserted),
+            _MOVE_PAIR_BUDGET,
+        )
+        return move_from, move_to
+
+    threshold = settings.move_threshold
+    used_inserts: set[int] = set()
     for oi in deleted:
+        a = orig_keys[oi]
         best_rj = -1
-        best_ratio = settings.move_threshold
+        best_ratio = threshold
         for rj in inserted:
             if rj in used_inserts:
                 continue
-            r = _ratio(orig_keys[oi], rev_keys[rj])
+            b = rev_keys[rj]
+            # Cheap length prefilter: difflib's ratio is bounded above by
+            # 2*min/(len_a+len_b), so skip pairs that can't clear the bar
+            # before paying for the full O(len) comparison.
+            la, lb = len(a), len(b)
+            if la and lb and 2 * min(la, lb) / (la + lb) < best_ratio:
+                continue
+            r = _ratio(a, b)
             if r >= best_ratio:
                 best_ratio = r
                 best_rj = rj

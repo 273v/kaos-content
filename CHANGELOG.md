@@ -18,7 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   elsewhere is paired as `rev-move-from` / `rev-move-to`). Pure Python,
   no new dependencies. The result round-trips: `accept_all` reproduces
   the revised document, `reject_all` the original. Format-agnostic —
-  works for any two documents (DOCX, PDF, HTML).
+  works for any two documents (DOCX, PDF, HTML). Move detection is
+  bounded: when the deleted×inserted candidate space exceeds a budget it
+  is skipped (relocations then surface as delete + insert) and logged —
+  never a silent stall — and a length prefilter avoids needless
+  similarity work on size-mismatched pairs.
 - **`RevisionView` enum and `kaos_content.revision.view()`** convenience
   for rendering a tracked-change document as `ORIGINAL` / `FINAL` /
   `MARKUP`.

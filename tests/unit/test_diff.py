@@ -127,3 +127,79 @@ class TestAuthorStamp:
         revs = Revisions.from_document(redline)
         assert revs
         assert all(r.author == "Jane Reviewer" for r in revs)
+
+
+class TestMultipleMoves:
+    def test_three_distinct_blocks_relocated(self) -> None:
+        a = "First clause about indemnification obligations and limits."
+        b = "Second clause about governing law and venue selection."
+        c = "Third clause about confidentiality and permitted disclosures."
+        original = _doc(a, b, c, "Anchor paragraph that does not move.")
+        revised = _doc("Anchor paragraph that does not move.", c, a, b)
+        redline = compare_documents(original, revised, author="T", detect_moves=True)
+        revs = Revisions.from_document(redline)
+        froms = [r for r in revs if r.change_type == RevisionType.MOVE_FROM]
+        tos = [r for r in revs if r.change_type == RevisionType.MOVE_TO]
+        # Each relocated clause is a from/to pair with a shared, unique name.
+        assert len(froms) == len(tos) >= 2
+        names = {r.move_name for r in froms}
+        assert len(names) == len(froms)  # every move pair has its own name
+        _assert_roundtrip(original, revised)
+
+
+class TestMoveBudget:
+    def test_move_detection_skipped_above_budget(self) -> None:
+        """Huge insert/delete counts skip move detection but still round-trip.
+
+        The cap keeps the O(deleted x inserted) pairing from stalling; the
+        diff stays correct (relocations become delete + insert).
+        """
+        original = _doc(*[f"Old unique paragraph number {i} here." for i in range(240)])
+        revised = _doc(*[f"New unique paragraph number {i} here." for i in range(240)])
+        # 240 * 240 = 57600 > 50000 budget → move detection skipped.
+        redline = compare_documents(original, revised, author="T", detect_moves=True)
+        by_type = {r.change_type for r in Revisions.from_document(redline)}
+        assert RevisionType.MOVE_FROM not in by_type
+        assert by_type <= {RevisionType.INSERTION, RevisionType.DELETION}
+        _assert_roundtrip(original, revised)
+
+
+class TestTables:
+    def _table_doc(self, cell_text: str) -> ContentDocument:
+        from kaos_content.model.blocks import Table
+        from kaos_content.model.table import Cell, Row, TableSection
+
+        table = Table(
+            head=TableSection(
+                rows=(Row(cells=(Cell(content=(Paragraph(children=(Text(value="Header"),)),)),)),)
+            ),
+            bodies=(
+                TableSection(
+                    rows=(
+                        Row(cells=(Cell(content=(Paragraph(children=(Text(value=cell_text),)),)),)),
+                    )
+                ),
+            ),
+        )
+        return ContentDocument(metadata=DocumentMetadata(title=""), body=(table,))
+
+    def test_changed_table_round_trips(self) -> None:
+        original = self._table_doc("Original cell value.")
+        revised = self._table_doc("Revised cell value.")
+        redline = compare_documents(original, revised, author="T")
+        assert Revisions.from_document(redline)
+        _assert_roundtrip(original, revised)
+
+
+class TestLargerDocument:
+    def test_many_paragraphs_few_edits_round_trip(self) -> None:
+        base = [f"Section {i}: standard contractual language and provisions." for i in range(200)]
+        original = _doc(*base)
+        edited = list(base)
+        edited[50] = "Section 50: AMENDED contractual language and provisions."
+        del edited[120]
+        edited.insert(10, "Section 9b: a newly inserted provision.")
+        revised = _doc(*edited)
+        redline = _assert_roundtrip(original, revised)
+        # A handful of edits should not explode into hundreds of revisions.
+        assert len(Revisions.from_document(redline)) < 20
