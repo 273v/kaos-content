@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] — 2026-05-29
+
+Redline engine: `compare_documents` plus revision read/transform fixes
+surfaced by edge-case testing.
+
 ### Fixed
 
 - **Revision date comparisons no longer crash on mixed timezone-awareness.**
