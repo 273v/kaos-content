@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5]
+
+### Added
+
+- **`kaos_content.dedup.dedup(..., embedder=..., semantic_threshold=...,
+  semantic_k=...)`** — a semantic *reachability* dedup path. When an
+  `embedder` (any object with `.embed(list[str]) -> ndarray`, e.g.
+  `kaos_nlp_transformers.EmbeddingModel`) is supplied, `dedup` runs a new
+  level after the resolved lexical levels: it embeds the documents, builds
+  a cosine similarity graph (kNN + threshold), and groups the **connected
+  components** of that graph. Grouping is transitive — `A ~ B` and `B ~ C`
+  merge `A`, `B` and `C` into one duplicate group even when `A` and `C` are
+  not directly above the threshold — so semantically equivalent items
+  phrased differently (which lexical hashing / MinHash miss) are caught.
+  The survivor of each semantic group honors the existing `canonical=`
+  strategy. Behavior is unchanged when no `embedder` is passed (additive,
+  non-breaking).
+- **`kaos_content.dedup.levels.SemanticGraphDedupLevel`** — the level
+  backing the path above, also usable directly in a `DedupPipeline`. The
+  heavy compute stays in the Rust kernels: cosine edges from
+  `kaos_nlp_core.similarity.knn_graph` / `near_duplicates`, connected
+  components from `kaos_graph.algorithms.connected_components_from_edges`.
+  Distinct from `SemanticDedupLevel` (hierarchical agglomerative clustering
+  at a cosine *distance* threshold); the graph-reachability level avoids the
+  dense `O(n^2)` distance matrix and follows transitive chains.
+
+### Changed
+
+- New `[graph]` extra (`kaos-graph>=0.1.4`) provides the
+  `connected_components_from_edges` union-find kernel. The semantic
+  reachability path needs `[nlp]` (kaos-nlp-core) + `[graph]` (kaos-graph)
+  plus a caller-supplied embedder.
+
 ## [0.1.4] — 2026-06-02
 
 ### Added
