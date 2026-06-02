@@ -129,6 +129,12 @@ class SemanticGraphDedupLevel(DedupLevel):
         self._max_chars = max_chars
         self._batch_size = batch_size
         self._assume_normalized = assume_normalized
+        self.last_embeddings: dict[str, Any] = {}
+        """Unit-norm embedding row per ``doc_id`` from the most recent
+        :meth:`find_clusters` call (empty before the first run). Exposed so
+        the ``dedup(embedder=...)`` convenience API can reuse the vectors
+        this level already computed to drive ``canonical='medoid'`` survivor
+        selection without re-embedding. Reset at the start of each call."""
 
     def _embed(self, texts: list[str]) -> Any:
         """Embed ``texts`` via the caller's embedder.
@@ -177,6 +183,8 @@ class SemanticGraphDedupLevel(DedupLevel):
             )
             raise ImportError(msg) from exc
 
+        self.last_embeddings = {}
+
         valid: list[tuple[int, DedupDocument]] = []
         texts: list[str] = []
         for i, doc in enumerate(documents):
@@ -200,6 +208,11 @@ class SemanticGraphDedupLevel(DedupLevel):
         if not self._assume_normalized:
             norms = np.linalg.norm(matrix, axis=1, keepdims=True)
             matrix = as_contiguous_f32(matrix / np.where(norms == 0.0, 1.0, norms))
+
+        # Stash the rows we just computed so the convenience API can reuse
+        # them for canonical='medoid' instead of re-embedding (one source of
+        # truth for the vectors). Keyed by doc_id; rows are unit-norm.
+        self.last_embeddings = {doc.doc_id: matrix[row] for row, (_, doc) in enumerate(valid)}
 
         n = matrix.shape[0]
 

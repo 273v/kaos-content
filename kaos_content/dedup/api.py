@@ -11,11 +11,15 @@ common case.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any
 
 from kaos_content.dedup.canonical import CanonicalStrategy, recanonicalize
 from kaos_content.dedup.pipeline import DedupPipeline, DedupPipelineConfig
 from kaos_content.dedup.types import DedupDocument, DedupLevel, DedupReport
+
+if TYPE_CHECKING:
+    from kaos_content.dedup.levels.semantic_graph import SemanticGraphDedupLevel
 
 _PRESET_NAMES = ("fast", "standard", "comprehensive", "legal", "ocr_aware")
 
@@ -126,6 +130,7 @@ def dedup(
         # keeping the preset's level list.
         active = _resolve_preset(preset).levels
 
+    semantic_level: SemanticGraphDedupLevel | None = None
     if embedder is not None:
         # Lazy import so `dedup` without an embedder never touches the
         # optional nlp/graph dependency surface. Appended last (after the
@@ -133,18 +138,78 @@ def dedup(
         # lexical levels did not already cluster.
         from kaos_content.dedup.levels.semantic_graph import SemanticGraphDedupLevel
 
-        active = (
-            *active,
-            SemanticGraphDedupLevel(
-                embedder,
-                threshold=semantic_threshold,
-                k=semantic_k,
-            ),
+        semantic_level = SemanticGraphDedupLevel(
+            embedder,
+            threshold=semantic_threshold,
+            k=semantic_k,
         )
+        active = (*active, semantic_level)
 
     config = DedupPipelineConfig(levels=active, short_circuit=short_circuit)
     report = DedupPipeline(config).run(docs)
+
+    # canonical='medoid' needs an embedding on every cluster member. When an
+    # embedder is supplied, reuse the vectors the semantic level already
+    # computed (and embed any cluster member it didn't cover in one batched
+    # call) so the embedder=+medoid combo works without the caller having to
+    # pre-attach embeddings to every DedupDocument.
+    if canonical == "medoid" and embedder is not None:
+        docs = _attach_medoid_embeddings(docs, report, semantic_level, embedder)
+
     return recanonicalize(report, docs, canonical)
+
+
+def _attach_medoid_embeddings(
+    docs: list[DedupDocument],
+    report: DedupReport,
+    semantic_level: SemanticGraphDedupLevel | None,
+    embedder: Any,
+) -> list[DedupDocument]:
+    """Return ``docs`` with an embedding on every clustered member.
+
+    medoid survivor selection only touches documents that ended up in a
+    cluster. For each such member we take, in order: its existing
+    ``DedupDocument.embedding``; else the unit-norm row the semantic level
+    just computed (``last_embeddings``); else — for members a lexical level
+    clustered before the semantic level ran — a single batched
+    ``embedder.embed`` call. Documents not in any cluster are left untouched.
+    """
+    clustered: set[str] = set()
+    for cluster in report.clusters:
+        clustered.update(cluster.member_doc_ids)
+    if not clustered:
+        return docs
+
+    cached = semantic_level.last_embeddings if semantic_level is not None else {}
+
+    # Members still missing a vector after the cache lookup — embed in one go.
+    missing = [
+        d
+        for d in docs
+        if d.doc_id in clustered
+        and d.embedding is None
+        and d.doc_id not in cached
+        and d.text
+        and d.text.strip()
+    ]
+    fresh: dict[str, Any] = {}
+    if missing:
+        try:
+            vectors = embedder.embed([d.text for d in missing], batch_size=64)
+        except TypeError:
+            vectors = embedder.embed([d.text for d in missing])
+        fresh = {d.doc_id: vectors[i] for i, d in enumerate(missing)}
+
+    out: list[DedupDocument] = []
+    for d in docs:
+        if d.doc_id not in clustered or d.embedding is not None:
+            out.append(d)
+            continue
+        vec = cached.get(d.doc_id)
+        if vec is None:
+            vec = fresh.get(d.doc_id)
+        out.append(replace(d, embedding=vec) if vec is not None else d)
+    return out
 
 
 __all__ = ["dedup"]
