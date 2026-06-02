@@ -6,11 +6,15 @@ Five levels from cheapest to most expensive:
 2. **Fuzzy binary hash** — re-saved files (CTPH via kaos-nlp-core)
 3. **Exact text hash** — format-variant dups (same text in PDF + DOCX)
 4. **Near-dup text** — MinHash + LSH (kaos-nlp-core, token shingles)
-5. **Semantic clustering** — template families (embedding + cosine)
+5. **Semantic clustering** — template families (embedding + cosine,
+   agglomerative)
+6. **Semantic reachability** — embedding similarity graph + connected
+   components; merges transitive paraphrase chains (``A ~ B ~ C``). Wired
+   through ``dedup(embedder=...)``.
 
-Each level is a standalone frozen dataclass implementing
-:class:`DedupLevel`. The :class:`DedupPipeline` chains them in order
-with short-circuit: documents clustered at level N skip level N+1.
+Each level is a standalone class implementing :class:`DedupLevel`. The
+:class:`DedupPipeline` chains them in order with short-circuit: documents
+clustered at level N skip level N+1.
 
 Quick start::
 

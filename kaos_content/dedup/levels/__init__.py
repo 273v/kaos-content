@@ -18,6 +18,7 @@ from kaos_content.dedup.levels.fuzzy_binary import FuzzyBinaryLevel
 from kaos_content.dedup.levels.minhash import MinHashLevel
 from kaos_content.dedup.levels.perceptual import PerceptualHashLevel
 from kaos_content.dedup.levels.semantic import SemanticDedupLevel
+from kaos_content.dedup.levels.semantic_graph import SemanticGraphDedupLevel
 from kaos_content.dedup.levels.text_hash import TextHashLevel
 
 __all__ = [
@@ -26,5 +27,6 @@ __all__ = [
     "MinHashLevel",
     "PerceptualHashLevel",
     "SemanticDedupLevel",
+    "SemanticGraphDedupLevel",
     "TextHashLevel",
 ]
