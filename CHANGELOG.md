@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] — 2026-06-02
+
+### Fixed
+
+- **`dedup(embedder=..., canonical="medoid")` no longer raises.** The
+  semantic reachability level computed embeddings for the similarity graph
+  but discarded them, so medoid survivor selection then found
+  `embedding=None` on every member and failed (`canonical='medoid' needs an
+  embedding on every cluster member`). `dedup()` now reuses the unit-norm
+  vectors the semantic level already computed (exposed as
+  `SemanticGraphDedupLevel.last_embeddings`) to drive medoid selection, and
+  embeds any cluster member the graph did not cover — e.g. members a lexical
+  level clustered before the semantic level ran — in a single batched
+  `embedder.embed` call. The `embedder=` + `medoid` combination now works
+  from plain strings with no need to pre-attach embeddings to every
+  `DedupDocument`. The reuse adds no extra embedding pass for the common
+  semantic-cluster case (regression-tested via the embedder call count).
+
+### Added
+
+- `SemanticGraphDedupLevel.last_embeddings` — the unit-norm embedding row
+  per `doc_id` from the most recent `find_clusters` call, so survivor
+  selection and other post-pipeline steps can reuse the level's vectors
+  without re-embedding.
+
 ## [0.1.5] — 2026-06-02
 
 ### Added
