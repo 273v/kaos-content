@@ -25,6 +25,12 @@ Quick start::
 
 from __future__ import annotations
 
+from kaos_content.dedup.api import dedup
+from kaos_content.dedup.canonical import (
+    CanonicalStrategy,
+    recanonicalize,
+    select_canonical,
+)
 from kaos_content.dedup.pipeline import DedupPipeline
 from kaos_content.dedup.types import (
     DedupCluster,
@@ -34,9 +40,13 @@ from kaos_content.dedup.types import (
 )
 
 __all__ = [
+    "CanonicalStrategy",
     "DedupCluster",
     "DedupDocument",
     "DedupLevel",
     "DedupPipeline",
     "DedupReport",
+    "dedup",
+    "recanonicalize",
+    "select_canonical",
 ]

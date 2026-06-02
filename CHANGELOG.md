@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] — 2026-06-02
+
+### Added
+
+- **`kaos_content.dedup.dedup(items, *, preset=..., canonical=...)`** — a
+  one-call convenience over the dedup pipeline that accepts plain strings
+  or `DedupDocument`s and applies configurable **canonical (survivor)
+  selection**: `"first"` (input order), `"longest"` / `"shortest"`,
+  `"medoid"` (centroid-nearest member — the most representative record;
+  needs member embeddings), or a `Callable`. New public names `dedup`,
+  `select_canonical`, `recanonicalize`, `CanonicalStrategy`.
+  Re-canonicalization is a non-invasive post-pipeline pass — cluster
+  membership and counts are unchanged.
+- **`kaos_content.cluster.label_clusters(texts, cluster_ids, ...)`** —
+  automatic cluster labelling via class-based TF-IDF (BERTopic c-TF-IDF).
+  The compute runs in the `kaos_nlp_core.ctfidf` Rust kernel (requires
+  the `[nlp]` extra, kaos-nlp-core >= 0.1.6); this layer adds optional
+  semantic keyword **diversification** (MMR via
+  `kaos_nlp_core.similarity.mmr_select` with an embedder), a per-cluster
+  **exemplar** (medoid when embeddings are given, else longest text),
+  `token_prefix` morphological conflation, and the `ClusterLabel` type.
+  Completes the embedding -> `near_duplicates` -> `connected_components`
+  -> label pipeline. Recommended stopwords:
+  `kaos_nlp_core.stopwords.stopwords()`.
+
 ## [0.1.3] — 2026-05-29
 
 Redline engine: `compare_documents` plus revision read/transform fixes
