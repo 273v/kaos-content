@@ -254,6 +254,15 @@ include = ["kaos_content", "tests"]
 # walk the bodies. Runtime skips on NDA fixture absence still apply
 # (the local docx files are not shipped with the repo).
 
+[[tool.ty.overrides]]
+# Frozen-model tests deliberately assign to read-only fields inside
+# `pytest.raises(ValidationError)` to prove immutability; ty flags these as
+# invalid-assignment. Scope the allowance to the test tree only.
+include = ["tests/**"]
+
+[tool.ty.overrides.rules]
+invalid-assignment = "ignore"
+
 [tool.uv]
 package = true
 exclude-newer = "72 hours"

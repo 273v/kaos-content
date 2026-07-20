@@ -1447,7 +1447,7 @@ class TestContentDocumentEdgeCases:
     def test_document_frozen(self) -> None:
         doc = ContentDocument()
         with pytest.raises(ValidationError):
-            doc.body = []  # ty: ignore[invalid-assignment]
+            doc.body = []
 
     def test_document_model_copy(self) -> None:
         doc = ContentDocument(

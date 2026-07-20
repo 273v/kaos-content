@@ -199,7 +199,7 @@ class TestColumn:
     def test_frozen(self) -> None:
         col = Column("x")
         with pytest.raises(AttributeError):
-            col.name = "y"  # ty: ignore[invalid-assignment]
+            col.name = "y"
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +269,7 @@ class TestTable:
     def test_frozen(self) -> None:
         t = Table(name="t")
         with pytest.raises(AttributeError):
-            t.name = "new"  # ty: ignore[invalid-assignment]
+            t.name = "new"
 
 
 # ---------------------------------------------------------------------------

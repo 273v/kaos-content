@@ -220,13 +220,13 @@ class ContentDocumentCorpus:
         self._passages: tuple[ContentPassage, ...] = tuple(passages)
 
     def iter_passages(self) -> Iterator[Passage]:
-        return iter(self._passages)
+        return iter(self._passages)  # ty: ignore[invalid-return-type]
 
     def get_passage(self, row: int) -> Passage:
         if row < 0 or row >= len(self._passages):
             msg = f"row index {row} out of range [0, {len(self._passages)})"
             raise IndexError(msg)
-        return self._passages[row]
+        return self._passages[row]  # ty: ignore[invalid-return-type]
 
     @property
     def size(self) -> int:
@@ -236,7 +236,7 @@ class ContentDocumentCorpus:
         return len(self._passages)
 
     def __iter__(self) -> Iterator[Passage]:
-        return iter(self._passages)
+        return iter(self._passages)  # ty: ignore[invalid-return-type]
 
 
 __all__ = ["ContentDocumentCorpus", "ContentPassage", "Corpus", "Passage"]
