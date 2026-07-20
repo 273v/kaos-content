@@ -72,7 +72,7 @@ class TestEntityMatchValueType:
     def test_frozen(self) -> None:
         m = EntityMatch(entity_type="dates", text="x", value=None, start=0, end=1)
         with pytest.raises((AttributeError, TypeError)):
-            m.start = 5  # ty: ignore[invalid-assignment]
+            m.start = 5
 
 
 class TestSentenceEntityHit:

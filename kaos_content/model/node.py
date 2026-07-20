@@ -11,7 +11,7 @@ from kaos_content.model.attr import Attr, Provenance
 if sys.version_info >= (3, 14):
     from uuid import uuid7 as _uuid7
 else:
-    from uuid6 import uuid7 as _uuid7
+    from uuid6 import uuid7 as _uuid7  # ty: ignore[unresolved-import]
 
 
 def _generate_node_id() -> str:

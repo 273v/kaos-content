@@ -105,7 +105,7 @@ class TestInstallHints:
                     targets.add(mod)
         for mod in targets:
             snapshot[mod] = sys.modules.get(mod, cls._MISSING)
-            sys.modules[mod] = None  # ty: ignore[invalid-assignment]
+            sys.modules[mod] = None
         return snapshot
 
     @classmethod
@@ -116,7 +116,7 @@ class TestInstallHints:
                 # so a future fresh import can succeed.
                 sys.modules.pop(mod, None)
             else:
-                sys.modules[mod] = val  # ty: ignore[invalid-assignment]
+                sys.modules[mod] = val
 
     @pytest.mark.skipif(not _has_scipy, reason="needs scipy installed to monkey-hide it")
     def test_missing_scipy_raises_install_hint(self) -> None:
