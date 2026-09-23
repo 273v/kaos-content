@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] — 2026-09-22
+
+### Fixed
+
+- **`[duckdb]` extra floor raised to `duckdb>=1.4.0`.** Before 1.4.0, DuckDB
+  reports generic column type codes (e.g. `"NUMBER"`), so `query_to_table`
+  typed every column as TEXT. The old `>=1.1.1` floor allowed those versions.
+- **`[dedup-perceptual]` extra floor raised to `imagehash>=4.3.1`.** imagehash
+  4.3.0 imports `six` without declaring it, so a minimal install failed at
+  import time.
+- Both were found by making the `min-deps` CI lane actually test the declared
+  minimums (it previously re-synced to the locked versions before running).
+
+### Changed
+
+- `Revisions.sorted_by_date()` sorts on `(date, revision)` pairs internally;
+  ordering and results are unchanged.
+
+### Dependencies
+
+- Lockfile refresh with security fixes (anyio, pydantic-settings) and
+  Python 3.15 wheels (lxml, numpy, pywavelets, rpds-py). On Python 3.15 the
+  `[polars]` extra is not exercised in CI because polars itself does not yet
+  work on 3.15 (pola-rs/polars#28347, #29419).
+
 ## [0.1.6] — 2026-06-02
 
 ### Fixed
