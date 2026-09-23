@@ -59,7 +59,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
@@ -69,7 +69,19 @@ jobs:
         run: uv python install --preview ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --group dev --extra markdown --extra html --extra images --extra layout --extra polars --extra duckdb --extra dedup-perceptual --extra nlp --python ${{ matrix.python-version }}
+        shell: bash
+        env:
+          PY: ${{ matrix.python-version }}
+        run: |
+          extras="--extra markdown --extra html --extra images --extra layout --extra duckdb --extra dedup-perceptual --extra nlp"
+          # polars is broken on CPython 3.15 pre-GA (pola-rs/polars#28347,
+          # #29419: Series expression dispatch returns None), so the 3.15 leg
+          # skips the [polars] extra; the dev group carries a matching marker.
+          if [[ "$PY" != 3.15* ]]; then
+            extras="$extras --extra polars"
+          fi
+          # shellcheck disable=SC2086
+          uv sync --group dev $extras --python "$PY"
 
       - name: Run tests
         shell: bash

@@ -2,6 +2,9 @@
 
 Backfill from Phase 0 gap: verify that Pydantic's discriminated union
 rejects invalid tree structures at construction time.
+
+Invalid structures are fed through ``model_validate`` so the runtime
+validator (not the static type signature) is what rejects them.
 """
 
 import pytest
@@ -26,19 +29,19 @@ class TestBlockInInlinePosition:
 
     def test_paragraph_rejects_block_child(self) -> None:
         with pytest.raises(ValidationError):
-            Paragraph(children=(Paragraph(children=(Text(value="nested"),)),))
+            Paragraph.model_validate({"children": (Paragraph(children=(Text(value="nested"),)),)})
 
     def test_paragraph_rejects_heading(self) -> None:
         with pytest.raises(ValidationError):
-            Paragraph(children=(Heading(depth=1, children=(Text(value="h"),)),))
+            Paragraph.model_validate({"children": (Heading(depth=1, children=(Text(value="h"),)),)})
 
     def test_heading_rejects_block_child(self) -> None:
         with pytest.raises(ValidationError):
-            Heading(depth=1, children=(Table(),))
+            Heading.model_validate({"depth": 1, "children": (Table(),)})
 
     def test_heading_rejects_codeblock(self) -> None:
         with pytest.raises(ValidationError):
-            Heading(depth=1, children=(CodeBlock(value="x"),))
+            Heading.model_validate({"depth": 1, "children": (CodeBlock(value="x"),)})
 
 
 class TestInlineInBlockPosition:
@@ -46,15 +49,15 @@ class TestInlineInBlockPosition:
 
     def test_blockquote_rejects_text(self) -> None:
         with pytest.raises(ValidationError):
-            BlockQuote(children=(Text(value="text"),))
+            BlockQuote.model_validate({"children": (Text(value="text"),)})
 
     def test_div_rejects_text(self) -> None:
         with pytest.raises(ValidationError):
-            Div(children=(Text(value="text"),))
+            Div.model_validate({"children": (Text(value="text"),)})
 
     def test_list_item_rejects_text(self) -> None:
         with pytest.raises(ValidationError):
-            ListItem(children=(Text(value="text"),))
+            ListItem.model_validate({"children": (Text(value="text"),)})
 
 
 class TestListTypeConstraints:
@@ -62,11 +65,11 @@ class TestListTypeConstraints:
 
     def test_ordered_list_rejects_paragraph(self) -> None:
         with pytest.raises(ValidationError):
-            OrderedList(children=(Paragraph(children=(Text(value="x"),)),))
+            OrderedList.model_validate({"children": (Paragraph(children=(Text(value="x"),)),)})
 
     def test_bullet_list_rejects_paragraph(self) -> None:
         with pytest.raises(ValidationError):
-            BulletList(children=(Paragraph(children=(Text(value="x"),)),))
+            BulletList.model_validate({"children": (Paragraph(children=(Text(value="x"),)),)})
 
 
 class TestValidConstructions:

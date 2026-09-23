@@ -201,10 +201,9 @@ class Revisions:
 
     def sorted_by_date(self) -> list[Revision]:
         """All dated revisions, ascending by date. Undated revisions are excluded."""
-        return sorted(
-            (r for r in self.items if r.date is not None),
-            key=lambda r: r.date,
-        )
+        dated = [(r.date, r) for r in self.items if r.date is not None]
+        dated.sort(key=lambda pair: pair[0])
+        return [r for _, r in dated]
 
     def summary(self) -> dict[str, dict[str, int]]:
         """Counts by (author, change_type). Useful for dashboards."""
