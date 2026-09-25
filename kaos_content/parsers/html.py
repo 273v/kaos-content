@@ -193,56 +193,168 @@ _ACTION_LINK_RE = re.compile(
 
 # --- Inline XBRL preprocessing -----------------------------------------
 #
-# SEC EDGAR filings use Inline XBRL (iXBRL): standard HTML wrapped in
-# ``ix:`` namespace elements.  lxml parses namespace-prefixed tags as
-# ``{uri}localname`` which the AST builder doesn't recognize.  The fix:
-# strip the XBRL wrapper before AST conversion.
+# SEC EDGAR filings use Inline XBRL (iXBRL): XHTML whose visible text is
+# tagged with ``ix:`` elements, plus an ``ix:header`` block (normally
+# inside a ``display:none`` container) holding hidden facts, contexts and
+# units.  The AST walker does not know ``ix:`` tags, so the markup is
+# normalised on the parsed DOM before conversion:
+#
+# * ``ix:header`` and any element whose inline style is ``display:none``
+#   are removed with their subtree (their tail text stays -- it is
+#   visible content that follows the element).
+# * every other ``ix:`` element is unwrapped: its text, children and tail
+#   are kept in place, so ``ix:nonNumeric`` / ``ix:nonFraction`` /
+#   ``ix:continuation`` / ``ix:exclude`` content renders as in a browser.
+# * ``xmlns`` declarations are dropped.
+#
+# The work is done on the lxml tree rather than with regular expressions:
+# hidden containers nest (``<div style="display:none"><div>..</div>..</div>``),
+# use either quote style, and are not always ``<div>``; a lazy regex stops
+# at the first nested ``</div>``, leaks the rest of the hidden block and
+# leaves unbalanced tags behind.
 #
 # Reference: https://www.xbrl.org/Specification/inlineXBRL-part1/REC-2013-11-18/inlineXBRL-part1-REC-2013-11-18.html
 
-_XBRL_HIDDEN_RE = re.compile(
-    r"<ix:header\b[^>]*>.*?</ix:header>",
-    re.DOTALL | re.IGNORECASE,
+# Namespace URIs of Inline XBRL 1.0 (2008) and 1.1 (2013).
+_INLINE_XBRL_NAMESPACES = frozenset(
+    {
+        "http://www.xbrl.org/2008/inlineXBRL",
+        "http://www.xbrl.org/2013/inlineXBRL",
+    }
 )
-_XBRL_TAG_RE = re.compile(r"</?ix:[^>]*>", re.IGNORECASE)
-_DISPLAY_NONE_RE = re.compile(
-    r'<div\b[^>]*style\s*=\s*"[^"]*display\s*:\s*none[^"]*"[^>]*>.*?</div>',
-    re.DOTALL | re.IGNORECASE,
+# The conventional prefix, used when a document (or fragment) does not
+# declare one.
+_DEFAULT_IX_PREFIX = "ix"
+# ``xmlns:<prefix>="<inline XBRL namespace>"`` anywhere in the markup.
+_IX_NAMESPACE_DECL_RE = re.compile(
+    r"""xmlns:([A-Za-z_][\w.-]*)\s*=\s*["']\s*http://www\.xbrl\.org/(?:2008|2013)/inlineXBRL\s*["']"""
 )
-_XML_DECL_RE = re.compile(r"<\?xml[^?]*\?>")
-_XMLNS_RE = re.compile(r'\s+xmlns:[a-z_-]+="[^"]*"', re.IGNORECASE)
+# A start tag of an Inline XBRL element using the conventional prefix.
+_IX_ELEMENT_RE = re.compile(
+    r"<ix:(?:header|hidden|nonnumeric|nonfraction|continuation|exclude|footnote|fraction"
+    r"|references|resources|tuple)\b",
+    re.IGNORECASE,
+)
+_DISPLAY_NONE_RE = re.compile(r"(?:^|;)\s*display\s*:\s*none\s*(?:!\s*important\s*)?(?:;|$)", re.I)
+_XML_DECL_RE = re.compile(r"^\s*<\?xml\b[^>]*\?>")
+
+
+def _inline_xbrl_prefixes(html: str) -> frozenset[str]:
+    """Return the lower-cased element prefixes bound to the iXBRL namespace."""
+    declared = {m.group(1).lower() for m in _IX_NAMESPACE_DECL_RE.finditer(html)}
+    return frozenset(declared | {_DEFAULT_IX_PREFIX})
+
+
+def _is_display_none(el: HtmlElement) -> bool:
+    style = el.get("style")
+    return bool(style) and _DISPLAY_NONE_RE.search(style) is not None
+
+
+def _strip_inline_xbrl_tree(root: HtmlElement, prefixes: frozenset[str]) -> None:
+    """Remove hidden iXBRL content and unwrap visible ``ix:`` elements in place.
+
+    ``root`` must come from lxml's HTML parser, which keeps namespace
+    prefixes as part of the (lower-cased) tag name, e.g. ``ix:nonnumeric``.
+    """
+
+    def ix_local(el: HtmlElement) -> str | None:
+        tag = el.tag
+        if not isinstance(tag, str) or ":" not in tag:
+            return None
+        prefix, _, local = tag.partition(":")
+        return local.lower() if prefix.lower() in prefixes else None
+
+    # Pass 1: drop hidden subtrees. Collect first, then drop outermost only
+    # (dropping an ancestor already removes nested matches).
+    hidden = [
+        el
+        for el in root.iter()
+        if isinstance(el.tag, str) and (ix_local(el) == "header" or _is_display_none(el))
+    ]
+    hidden_ids = {id(el) for el in hidden}
+    for el in hidden:
+        if any(id(anc) in hidden_ids for anc in el.iterancestors()):
+            continue
+        if el.getparent() is None:
+            continue  # never drop the document root itself
+        el.drop_tree()  # keeps el.tail
+
+    # Pass 2: unwrap the remaining ix: elements (innermost first so that
+    # drop_tag() always operates on an element still attached to the tree).
+    wrappers = [el for el in root.iter() if ix_local(el) is not None]
+    for el in reversed(wrappers):
+        if el.getparent() is not None:
+            el.drop_tag()  # keeps text, children and tail
+
+    # Pass 3: drop namespace declarations (kept as plain attributes by the
+    # HTML parser).
+    for el in root.iter():
+        if not isinstance(el.tag, str):
+            continue
+        for name in [n for n in el.attrib if n == "xmlns" or n.startswith("xmlns:")]:
+            del el.attrib[name]
+
+
+def _parse_inline_xbrl(html: str) -> HtmlElement | None:
+    """Parse an iXBRL document and normalise it to plain HTML (see above)."""
+    prefixes = _inline_xbrl_prefixes(html)
+    # XHTML documents often start with ``<?xml ... encoding='ASCII'?>``;
+    # lxml refuses str input that carries an encoding declaration.
+    source = _XML_DECL_RE.sub("", html, count=1)
+    try:
+        doc = lxml_html.document_fromstring(source, parser=_SAFE_HTML_PARSER)
+    except (LxmlError, ValueError):
+        logger.debug("iXBRL parse error", exc_info=True)
+        return None
+    _strip_inline_xbrl_tree(doc, prefixes)
+    return doc
 
 
 def strip_inline_xbrl(html: str) -> str:
     """Remove Inline XBRL markup from an HTML string.
 
     Inline XBRL (iXBRL) wraps standard HTML in ``ix:`` namespace
-    elements.  This function:
+    elements.  This function parses the document and:
 
-    1. Removes ``<ix:header>`` blocks (XBRL metadata, not visible).
-    2. Removes ``<div style="display:none">`` blocks (hidden XBRL data).
-    3. Unwraps all remaining ``ix:`` tags, keeping their text content.
-       For example ``<ix:nonNumeric ...>42</ix:nonNumeric>`` -> ``42``.
-    4. Strips the XML declaration and XBRL namespace attributes so
-       lxml can parse the result as plain HTML.
+    1. Removes ``<ix:header>`` blocks (hidden facts, contexts, units).
+    2. Removes every element whose inline ``style`` sets
+       ``display:none`` -- with its whole subtree, whatever the tag,
+       nesting depth or attribute quoting.  Text that follows the
+       element (its tail) is kept.
+    3. Unwraps all remaining ``ix:`` elements, keeping their text and
+       child markup.  For example
+       ``<ix:nonNumeric ...>42</ix:nonNumeric>`` -> ``42``.
+    4. Drops the XML declaration and ``xmlns`` attributes.
+
+    Any prefix bound to the Inline XBRL namespace is recognised, plus
+    the conventional ``ix`` prefix.
 
     The returned string is standard HTML suitable for AST conversion.
+    Input that cannot be parsed is returned unchanged.
     """
-    # Order matters: remove hidden blocks before unwrapping tags,
-    # so we don't accidentally keep hidden metadata text.
-    result = _XBRL_HIDDEN_RE.sub("", html)
-    result = _DISPLAY_NONE_RE.sub("", result)
-    result = _XBRL_TAG_RE.sub("", result)
-    result = _XML_DECL_RE.sub("", result)
-    result = _XMLNS_RE.sub("", result)
-    return result
+    if not html or not html.strip():
+        return html
+    doc = _parse_inline_xbrl(html)
+    if doc is None:
+        return html
+    return lxml_html.tostring(doc, encoding="unicode", method="html")
 
 
 def looks_like_xbrl(html: str) -> bool:
-    """Heuristic: does this HTML contain Inline XBRL markup?"""
-    # Check the first 2000 chars for XBRL signatures.
-    head = html[:2000]
-    return "ix:" in head or "inlineXBRL" in head or "xbrl" in head.lower()
+    """Does this HTML contain Inline XBRL markup?
+
+    True when the document declares the Inline XBRL namespace
+    (``xmlns:<prefix>="http://www.xbrl.org/2013/inlineXBRL"``, or the
+    2008 URI) or contains an Inline XBRL element start tag such as
+    ``<ix:header`` or ``<ix:nonNumeric`` -- anywhere in the input, not
+    just near the top.  Mentions of XBRL in prose, escaped markup, and
+    look-alike text such as ``Linux:`` do not count.
+    """
+    if not html:
+        return False
+    return _IX_ELEMENT_RE.search(html) is not None or (
+        _IX_NAMESPACE_DECL_RE.search(html) is not None
+    )
 
 
 # Shared default Attr instance (frozen, safe to reuse).
@@ -1531,20 +1643,23 @@ def parse_html(
     if not html_content or not html_content.strip():
         return empty_document()
 
-    # Strip Inline XBRL if requested or auto-detected.
-    if strip_xbrl is True or (strip_xbrl is None and looks_like_xbrl(html_content)):
-        html_content = strip_inline_xbrl(html_content)
-
     # Parse full document and use <body>. lxml raises ParserError /
     # XMLSyntaxError (both subclass LxmlError) on malformed markup, and
     # ValueError on empty / whitespace-only input. Anything broader
     # (TypeError, MemoryError) is a programmer bug, not a parse failure,
     # and should propagate.
-    try:
-        full_doc = lxml_html.document_fromstring(html_content, parser=_SAFE_HTML_PARSER)
-    except (LxmlError, ValueError):
-        logger.debug("HTML parse error", exc_info=True)
-        return empty_document()
+    full_doc: HtmlElement | None
+    if strip_xbrl is True or (strip_xbrl is None and looks_like_xbrl(html_content)):
+        # Inline XBRL: parse once and normalise the tree in place.
+        full_doc = _parse_inline_xbrl(html_content)
+        if full_doc is None:
+            return empty_document()
+    else:
+        try:
+            full_doc = lxml_html.document_fromstring(html_content, parser=_SAFE_HTML_PARSER)
+        except (LxmlError, ValueError):
+            logger.debug("HTML parse error", exc_info=True)
+            return empty_document()
 
     root = full_doc.body if full_doc is not None else None
     if root is None:

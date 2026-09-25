@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Inline XBRL (iXBRL) preprocessing is DOM-based.** `strip_inline_xbrl`
+  (and `parse_html(..., strip_xbrl=...)`) used regular expressions: a lazy
+  `<div style="display:none">.*?</div>` pattern stopped at the first
+  nested `</div>`, leaking the rest of a hidden block as text and leaving
+  unbalanced tags; it only matched double-quoted `style` on `<div>`; and
+  the `xmlns:` cleanup skipped prefixes containing digits (e.g.
+  `iso4217`). The document is now parsed once with lxml; `ix:header` and
+  every element whose inline style is `display:none` are removed with
+  their subtree (tail text kept), and all other `ix:` elements are
+  unwrapped so visible `ix:nonNumeric` / `ix:nonFraction` /
+  `ix:continuation` / `ix:exclude` text keeps its place and structure.
+  Any prefix bound to the Inline XBRL namespace is recognised.
+  `parse_html` normalises the tree in place instead of re-serialising.
+- **`looks_like_xbrl` detects real Inline XBRL markup anywhere in the
+  input.** It only inspected the first 2000 characters and matched any
+  `ix:` / `xbrl` substring, so documents with a long preamble were missed
+  while ordinary pages mentioning "XBRL" or containing text such as
+  `Linux:` or `Fix:` were treated as iXBRL. It now requires an Inline
+  XBRL namespace declaration or an `ix:` element start tag.
+
 ## [0.1.7] — 2026-09-22
 
 ### Fixed
