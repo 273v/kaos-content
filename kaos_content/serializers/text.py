@@ -238,9 +238,10 @@ class _TextContext:
     def _render_cell(self, cell: Any) -> str:
         if not cell.content:
             return ""
-        from kaos_content.traversal.visitor import extract_text
-
-        return extract_text(cell).strip()
+        # Each block of the cell on its own line (as a ``<br>`` inside it
+        # renders), so two paragraphs of one cell never run together.
+        parts = (self.render_block(block).strip() for block in cell.content)
+        return "\n".join(p for p in parts if p)
 
     # ── Inline rendering ──
 

@@ -19,6 +19,7 @@ import contextvars
 import re
 import threading
 import uuid
+from collections.abc import Callable
 from urllib.parse import urljoin
 
 from kaos_core.logging import get_logger
@@ -162,6 +163,106 @@ BLOCK_LEVEL_TAGS = frozenset(
         "article",
     }
 )
+# Page chrome containers, skipped unless they wrap the main content.
+_CHROME_TAGS = frozenset({"nav", "header", "footer"})
+
+# Form controls carry option lists and field values, not page content.
+_FORM_CONTROL_TAGS = frozenset({"select", "datalist", "textarea"})
+
+# A ``<form>`` holding any of these is a page wrapper (ASP.NET WebForms
+# and Lotus Domino pages put the whole body inside one ``<form>``), not a
+# form to skip.
+_PAGE_FORM_CONTENT_XPATH = (
+    ".//main | .//article | .//section | .//h1 | .//h2 | .//h3 | .//h4 | .//h5 | .//h6"
+    " | .//p | .//table | .//ul | .//ol | .//blockquote | .//dl | .//pre"
+)
+
+# Elements laid out as blocks by default (CSS ``display`` block, list-item
+# or a table part). In an inline context such an element still ends the
+# line: its text is never run into the text around it.
+BLOCK_BOUNDARY_TAGS = frozenset(
+    {
+        "address",
+        "article",
+        "aside",
+        "blockquote",
+        "caption",
+        "center",
+        "dd",
+        "details",
+        "dialog",
+        "dir",
+        "div",
+        "dl",
+        "dt",
+        "fieldset",
+        "figcaption",
+        "figure",
+        "footer",
+        "form",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "header",
+        "hgroup",
+        "hr",
+        "legend",
+        "li",
+        "listing",
+        "main",
+        "menu",
+        "nav",
+        "ol",
+        "p",
+        "plaintext",
+        "pre",
+        "section",
+        "summary",
+        "table",
+        "tbody",
+        "td",
+        "tfoot",
+        "th",
+        "thead",
+        "tr",
+        "ul",
+        "xmp",
+    }
+)
+
+# An inline ``style`` that lays the element out as a block.
+_BLOCK_DISPLAY_RE = re.compile(
+    r"(?:^|;)\s*display\s*:\s*(?:block|flex|grid|list-item|table(?:-row|-cell|-caption)?)\s*(?:!\s*important\s*)?(?:;|$)",
+    re.IGNORECASE,
+)
+
+# Inline-by-default tags the walker has no dedicated node for; their
+# content flows into the surrounding text run.
+_EXTRA_INLINE_TAGS = frozenset(
+    {
+        "acronym",
+        "bdi",
+        "bdo",
+        "big",
+        "cite",
+        "data",
+        "dfn",
+        "font",
+        "ins",
+        "kbd",
+        "label",
+        "nobr",
+        "q",
+        "samp",
+        "tt",
+        "var",
+        "wbr",
+    }
+)
+
 _LANG_RE = re.compile(r"\b(?:language|lang|highlight)-(\S+)")
 
 # `_is_safe_url` is imported from kaos_content._security so the same
@@ -374,6 +475,32 @@ def should_skip_element(el: HtmlElement) -> bool:
     return bool(SKIP_CLASSES.intersection(cls.split()))
 
 
+def _is_page_form(el: HtmlElement) -> bool:
+    """True if a ``<form>`` wraps page content rather than being a form."""
+    return bool(el.xpath(_PAGE_FORM_CONTENT_XPATH))
+
+
+def _wraps_main_content(el: HtmlElement) -> bool:
+    """True if ``el`` contains the page's main region or an article.
+
+    lxml's HTML parser recovers from unclosed tags by nesting the rest of
+    the page inside them, so on real pages ``<main>`` can end up inside a
+    ``<nav>`` or ``<header>``; such a container is not chrome.
+    """
+    return bool(el.xpath(".//main | .//article | .//*[@role='main']"))
+
+
+def _skip(el: HtmlElement, tag: str) -> bool:
+    """True if ``el`` (lower-cased ``tag``) produces no content."""
+    if tag in SKIP_TAGS:
+        if tag == "form":
+            return not _is_page_form(el)
+        if tag in _CHROME_TAGS:
+            return not _wraps_main_content(el)
+        return True
+    return tag in _FORM_CONTROL_TAGS or should_skip_element(el)
+
+
 def _is_action_link(href: str) -> bool:
     """Check if a link href is a UI action control, not a content link."""
     if not href:
@@ -538,13 +665,21 @@ def collapse_whitespace(text: str) -> str:
 
     Uses str.split()/join() which is ~4x faster than re.sub for this pattern.
     Note: split() also strips leading/trailing whitespace, so we re-add a
-    single space if the original had leading/trailing whitespace.
+    single space if the original had leading/trailing whitespace. Text that
+    is only whitespace collapses to a single space, not to ``""``.
     """
     if not text:
         return text
-    leading = text[0] in " \t\n\r"
-    trailing = text[-1] in " \t\n\r"
+    # ``str.split()`` splits on every Unicode space (U+00A0 NBSP included),
+    # so the edges must be tested the same way: ``"foo\xa0"`` before an
+    # element keeps its separating space.
+    leading = text[0].isspace()
+    trailing = text[-1].isspace()
     collapsed = " ".join(text.split())
+    if not collapsed:
+        # Whitespace-only text (``For<span> </span>the``, the tail between
+        # ``<b>a</b> <i>b</i>``) still separates the words around it.
+        return " " if leading or trailing else collapsed
     if leading and collapsed:
         collapsed = " " + collapsed
     if trailing and collapsed:
@@ -748,123 +883,277 @@ def make_provenance(url: str, *, extractor: str | None = None) -> Provenance | N
 # ---------------------------------------------------------------------------
 # Inline processing
 # ---------------------------------------------------------------------------
+#
+# Whitespace follows the CSS rules for ``white-space: normal``:
+#
+# * a run of source whitespace, including one that is the whole text or
+#   tail of an element (``For<span> </span>the``, ``<b>a</b> <i>b</i>``),
+#   is one space; it is kept however the inline element boundaries fall,
+#   and spaces that meet across a boundary collapse to one;
+# * whitespace at the start and end of a line (a block edge or a
+#   ``<br>``) is dropped;
+# * an element whose display is not inline (``<div>``, ``<p>``, ``<li>``,
+#   ``<td>``, ... or an inline ``style="display:block"``) ends the line,
+#   even inside an inline context such as ``<a><div>A</div><div>B</div></a>``;
+#   there it becomes a line break, never an empty join;
+# * text and inline elements that sit directly in a block container form
+#   one anonymous paragraph, like a browser's anonymous block box.
+#
+# Inline elements are hoisted out of these decisions: leading and trailing
+# whitespace (and block boundaries) of a formatting element move outside
+# it, so ``<b> bold </b>`` gives ``" " Strong("bold") " "`` and the
+# serializers never see markup-wrapped spaces.
 
 
-def process_inlines(el: HtmlElement, url: str) -> list[Inline]:
-    """Process an element's children as inline content.
+class _BlockBoundary:
+    """Internal marker for "a block-level element starts or ends here"."""
 
-    Handles the element's own text, child elements, and tail text.
-    This returns the inline nodes for the *children* of ``el`` (including
-    el.text), but NOT el's own tail text -- that belongs to the parent.
-    """
-    result: list[Inline] = []
+    __slots__ = ()
 
-    # Leading text of the element itself.
-    text = _strip_or_empty(el.text)
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "<block-boundary>"
+
+
+_BOUNDARY = _BlockBoundary()
+
+type _InlineItem = Inline | _BlockBoundary
+
+
+def _is_block_boundary(el: HtmlElement) -> bool:
+    """True if ``el`` is laid out as a block (it ends the current line)."""
+    tag = el.tag.lower() if isinstance(el.tag, str) else ""
+    if tag in BLOCK_BOUNDARY_TAGS:
+        return True
+    style = el.get("style")
+    return bool(style) and _BLOCK_DISPLAY_RE.search(style) is not None
+
+
+def _has_block_descendant(el: HtmlElement) -> bool:
+    """True if any descendant of ``el`` is laid out as a block."""
+    return any(isinstance(d.tag, str) and _is_block_boundary(d) for d in el.iterdescendants())
+
+
+def _append_text(items: list[_InlineItem], text: str | None) -> None:
+    """Append source text as one Text node (whitespace collapsed, kept at edges)."""
     if text:
         collapsed = collapse_whitespace(text)
         if collapsed:
-            result.append(mk_text(collapsed))
+            items.append(mk_text(collapsed))
 
-    for child in el:
-        if not isinstance(child.tag, str):
-            # Processing instruction or comment -- skip, but grab tail.
-            tail = _strip_or_empty(child.tail)
-            if tail:
-                collapsed = collapse_whitespace(tail)
-                if collapsed:
-                    result.append(mk_text(collapsed))
-            continue
 
-        tag = child.tag.lower()
+def _is_space_text(item: _InlineItem) -> bool:
+    return isinstance(item, Text) and not item.value.strip()
 
-        # Skip elements that should not produce inline content.
-        if tag in SKIP_TAGS:
-            tail = _strip_or_empty(child.tail)
-            if tail:
-                collapsed = collapse_whitespace(tail)
-                if collapsed:
-                    result.append(mk_text(collapsed))
-            continue
 
-        # Skip elements with well-known noise classes (e.g. mw-editsection).
-        if should_skip_element(child):
-            tail = _strip_or_empty(child.tail)
-            if tail:
-                collapsed = collapse_whitespace(tail)
-                if collapsed:
-                    result.append(mk_text(collapsed))
-            continue
+def _split_edges(
+    items: list[_InlineItem],
+) -> tuple[list[_InlineItem], list[_InlineItem], list[_InlineItem]]:
+    """Split ``items`` into (leading edge, core, trailing edge).
 
-        # Transparent inline elements: expand their children directly.
-        if tag in ("span", "u", "mark", "abbr", "time", "small", "font"):
-            result.extend(process_inlines(child, url))
+    The edges hold the whitespace and block boundaries at either end of an
+    inline element's content; they are re-emitted outside the element so
+    that they separate it from its neighbours.
+    """
+    lead: list[_InlineItem] = []
+    trail: list[_InlineItem] = []
+    core = list(items)
+    lead_space = False
+    while core and (core[0] is _BOUNDARY or _is_space_text(core[0])):
+        item = core.pop(0)
+        if item is _BOUNDARY:
+            lead.append(item)
         else:
-            inline = element_to_inline(child, url)
-            if inline is not None:
-                result.append(inline)
+            lead_space = True
+    if core and isinstance(core[0], Text) and core[0].value[:1].isspace():
+        lead_space = True
+        core[0] = mk_text(core[0].value.lstrip())
+    trail_space = False
+    while core and (core[-1] is _BOUNDARY or _is_space_text(core[-1])):
+        item = core.pop()
+        if item is _BOUNDARY:
+            trail.insert(0, item)
+        else:
+            trail_space = True
+    if core and isinstance(core[-1], Text) and core[-1].value[-1:].isspace():
+        trail_space = True
+        core[-1] = mk_text(core[-1].value.rstrip())
+    if lead_space:
+        lead.insert(0, mk_text(" "))
+    if trail_space:
+        trail.append(mk_text(" "))
+    return lead, core, trail
 
-        # Tail text after the child element.
-        tail = _strip_or_empty(child.tail)
-        if tail:
-            collapsed = collapse_whitespace(tail)
-            if collapsed:
-                result.append(mk_text(collapsed))
 
-    return merge_adjacent_text(result)
+def _finalize_inlines(items: list[_InlineItem]) -> list[Inline]:
+    """Resolve block boundaries to line breaks and normalise whitespace.
+
+    Boundaries at the very start or end are dropped (the caller's block
+    edge already separates them); a run of boundaries is one line break;
+    a boundary next to a ``<br>`` adds nothing; whitespace next to a line
+    break is dropped. Leading/trailing whitespace of the whole run is kept
+    for the caller to trim.
+    """
+    out: list[Inline] = []
+    pending = False
+    for item in items:
+        if isinstance(item, _BlockBoundary):
+            pending = pending or any(not _is_space_text(o) for o in out)
+            continue
+        if pending:
+            if _is_space_text(item):
+                continue
+            if not isinstance(item, LineBreak) and not (out and isinstance(out[-1], LineBreak)):
+                out.append(mk_linebreak())
+            pending = False
+        out.append(item)
+    out = merge_adjacent_text(out)
+    # Whitespace at the start or end of a line is not rendered.
+    result: list[Inline] = []
+    for i, node in enumerate(out):
+        if isinstance(node, Text):
+            value = node.value
+            if i > 0 and isinstance(out[i - 1], LineBreak):
+                value = value.lstrip()
+            if i + 1 < len(out) and isinstance(out[i + 1], LineBreak):
+                value = value.rstrip()
+            if not value:
+                continue
+            if value != node.value:
+                node = mk_text(value)
+        result.append(node)
+    return result
 
 
-def element_to_inline(el: HtmlElement, url: str) -> Inline | None:
-    """Convert a single element to an Inline node (or None to skip)."""
+def _trim_line_breaks(inlines: list[Inline]) -> list[Inline]:
+    """Drop whitespace and line breaks at both ends of a paragraph-level run."""
+    inlines = trim_inline_whitespace(inlines)
+    while inlines and isinstance(inlines[0], LineBreak):
+        inlines.pop(0)
+        inlines = trim_inline_whitespace(inlines)
+    while inlines and isinstance(inlines[-1], LineBreak):
+        inlines.pop()
+        inlines = trim_inline_whitespace(inlines)
+    return inlines
+
+
+def _collect_inlines(el: HtmlElement, url: str) -> list[_InlineItem]:
+    """Inline items for ``el``'s text and children (not its tail)."""
+    items: list[_InlineItem] = []
+    _append_text(items, el.text)
+    for child in el:
+        if isinstance(child.tag, str):
+            tag = child.tag.lower()
+            if not _skip(child, tag):
+                if _is_block_boundary(child):
+                    items.append(_BOUNDARY)
+                    items.extend(_collect_inlines(child, url))
+                    items.append(_BOUNDARY)
+                else:
+                    items.extend(_inline_items(child, url))
+        _append_text(items, child.tail)
+    return items
+
+
+def _wrapped(
+    el: HtmlElement,
+    url: str,
+    build: Callable[[tuple[Inline, ...]], Inline | None],
+    *,
+    keep_whitespace_only: bool = False,
+) -> list[_InlineItem]:
+    """Build a container inline from ``el``'s content, edges hoisted outside."""
+    lead, core, trail = _split_edges(_collect_inlines(el, url))
+    children = _finalize_inlines(core)
+    if not children or (not keep_whitespace_only and is_whitespace_only_inlines(children)):
+        node = None
+    else:
+        node = build(tuple(children))
+    if node is None:
+        # Nothing visible inside: the element still separates its
+        # neighbours if it held whitespace or a block.
+        return [*lead, *trail]
+    return [*lead, node, *trail]
+
+
+def _mk_strong_flat(children: tuple[Inline, ...]) -> Inline:
+    # Collapse redundant nesting: <b><b>text</b></b> -> Strong(text)
+    if len(children) == 1 and isinstance(children[0], Strong):
+        return children[0]
+    return mk_strong(children)
+
+
+def _mk_emphasis_flat(children: tuple[Inline, ...]) -> Inline:
+    if len(children) == 1 and isinstance(children[0], Emphasis):
+        return children[0]
+    return mk_emphasis(children)
+
+
+def _mk_strikethrough(children: tuple[Inline, ...]) -> Inline:
+    return Strikethrough.model_construct(
+        id=_fast_id(),
+        attr=_DEFAULT_ATTR,
+        provenance=None,
+        node_type="strikethrough",
+        children=children,
+    )
+
+
+def _mk_subscript(children: tuple[Inline, ...]) -> Inline:
+    return Subscript.model_construct(
+        id=_fast_id(),
+        attr=_DEFAULT_ATTR,
+        provenance=None,
+        node_type="subscript",
+        children=children,
+    )
+
+
+def _mk_superscript(children: tuple[Inline, ...]) -> Inline:
+    return Superscript.model_construct(
+        id=_fast_id(),
+        attr=_DEFAULT_ATTR,
+        provenance=None,
+        node_type="superscript",
+        children=children,
+    )
+
+
+def _inline_items(el: HtmlElement, url: str) -> list[_InlineItem]:
+    """Inline items for one inline-level element (not its tail)."""
     tag = el.tag.lower() if isinstance(el.tag, str) else ""
 
     if tag in ("strong", "b"):
-        children = tuple(process_inlines(el, url))
-        if not children or is_whitespace_only_inlines(children):
-            return None
-        # Collapse redundant nesting: <b><b>text</b></b> -> Strong(text)
-        if len(children) == 1 and isinstance(children[0], Strong):
-            return children[0]
-        return mk_strong(children)
+        return _wrapped(el, url, _mk_strong_flat)
 
     if tag in ("em", "i"):
-        children = tuple(process_inlines(el, url))
-        if not children or is_whitespace_only_inlines(children):
-            return None
-        # Collapse redundant nesting
-        if len(children) == 1 and isinstance(children[0], Emphasis):
-            return children[0]
-        return mk_emphasis(children)
+        return _wrapped(el, url, _mk_emphasis_flat)
 
     if tag in ("s", "del", "strike"):
-        children = tuple(process_inlines(el, url))
-        if not children:
-            return None
-        return Strikethrough.model_construct(
-            id=_fast_id(),
-            attr=_DEFAULT_ATTR,
-            provenance=None,
-            node_type="strikethrough",
-            children=children,
-        )
+        return _wrapped(el, url, _mk_strikethrough)
+
+    if tag == "sub":
+        return _wrapped(el, url, _mk_subscript)
+
+    if tag == "sup":
+        return _wrapped(el, url, _mk_superscript)
 
     if tag == "code":
         # Inline code: use text_content to flatten children.
         value = el.text_content() or ""
         if not value:
-            return None
-        return mk_code(value)
+            return []
+        return [mk_code(value)]
 
     if tag == "a":
         href = el.get("href", "")
         # Skip UI action links (vote, hide, flag, etc.)
         if href and _is_action_link(href):
-            return None
+            return []
         resolved = resolve_url(href, url) if href else ""
         if resolved and not _is_safe_url(resolved):
             # Sec-4 (security finding #4): drop the dangerous link but
             # preserve the user-visible text. Pre-fix this branch
-            # returned ``None``, silently swallowing the inner text —
+            # returned ``None``, silently swallowing the inner text --
             # ``<p>before <a href="javascript:...">click me</a> after</p>``
             # collapsed to ``before  after`` with the link contents
             # erased entirely.
@@ -874,63 +1163,64 @@ def element_to_inline(el: HtmlElement, url: str) -> Inline | None:
             # (annotations, transforms) attribute the change to a
             # stripped link via Attr if/when needed; for now no Attr
             # marker is attached because there's no in-tree consumer.
-            stripped_children = tuple(process_inlines(el, url))
-            if not stripped_children:
-                # Anchor had no inline children — nothing to preserve.
-                return None
-            return mk_span(stripped_children)
-        children = tuple(process_inlines(el, url))
-        if not children and not resolved:
-            return None
-        if not children:
+            return _wrapped(el, url, mk_span)
+        title = el.get("title") or None
+
+        def build_link(children: tuple[Inline, ...]) -> Inline:
+            return mk_link(resolved, children, title)
+
+        items = _wrapped(el, url, build_link)
+        if resolved and not any(isinstance(i, Link) for i in items):
             # Link with no visible text -- use href as text.
-            children = (mk_text(resolved),)
-        title = el.get("title")
-        return mk_link(resolved, children, title or None)
+            lead = [i for i in items if i is _BOUNDARY or _is_space_text(i)]
+            return [*lead, mk_link(resolved, (mk_text(resolved),), title)]
+        return items
 
     if tag == "img":
         src = _get_image_src(el)
         if not src:
-            return None
+            return []
         resolved = resolve_url(src, url)
         if not _is_safe_url(resolved):
-            return None
+            return []
         alt = el.get("alt", "")
         title = el.get("title")
-        return mk_image(resolved, alt or None, title or None)
+        return [mk_image(resolved, alt or None, title or None)]
 
     if tag == "br":
-        return mk_linebreak()
+        return [mk_linebreak()]
 
-    if tag == "sub":
-        children = tuple(process_inlines(el, url))
-        if not children:
-            return None
-        return Subscript.model_construct(
-            id=_fast_id(),
-            attr=_DEFAULT_ATTR,
-            provenance=None,
-            node_type="subscript",
-            children=children,
-        )
+    # Transparent inline elements (span, u, font, ...) and inline tags the
+    # walker has no node for (cite, q, label, Word's ``o:p``, custom
+    # elements): expand their content in place.
+    return _collect_inlines(el, url)
 
-    if tag == "sup":
-        children = tuple(process_inlines(el, url))
-        if not children:
-            return None
-        return Superscript.model_construct(
-            id=_fast_id(),
-            attr=_DEFAULT_ATTR,
-            provenance=None,
-            node_type="superscript",
-            children=children,
-        )
 
-    # Unknown inline-ish tag -- flatten text content.
-    text = el.text_content() or ""
-    if text.strip():
-        return mk_text(collapse_whitespace(text))
-    return None
+def process_inlines(el: HtmlElement, url: str) -> list[Inline]:
+    """Process an element's children as inline content.
+
+    Handles the element's own text, child elements, and tail text.
+    This returns the inline nodes for the *children* of ``el`` (including
+    el.text), but NOT el's own tail text -- that belongs to the parent.
+    Block-level descendants become line breaks; leading and trailing
+    whitespace is kept for the caller to trim.
+    """
+    return _finalize_inlines(_collect_inlines(el, url))
+
+
+def element_to_inline(el: HtmlElement, url: str) -> Inline | None:
+    """Convert a single element to an Inline node (or None to skip).
+
+    Surrounding whitespace that the element carries at its edges is not
+    part of the returned node; use :func:`process_inlines` on the parent
+    to keep it.
+    """
+    nodes = _trim_line_breaks(_finalize_inlines(_inline_items(el, url)))
+    if not nodes:
+        return None
+    if len(nodes) == 1:
+        return nodes[0]
+    return mk_span(tuple(nodes))
 
 
 # ---------------------------------------------------------------------------
@@ -946,12 +1236,9 @@ def process_element(el: HtmlElement, url: str) -> list[Block]:
     tag = el.tag.lower()
     prov = make_provenance(url)
 
-    # Skip non-content elements.
-    if tag in SKIP_TAGS:
-        return []
-
-    # Skip elements with well-known noise classes (e.g. mw-editsection).
-    if should_skip_element(el):
+    # Skip non-content elements and well-known noise classes (e.g.
+    # mw-editsection). A ``<form>`` that wraps page content is not skipped.
+    if _skip(el, tag):
         return []
 
     # Headings.
@@ -964,7 +1251,7 @@ def process_element(el: HtmlElement, url: str) -> list[Block]:
 
     # Paragraph.
     if tag == "p":
-        children = tuple(process_inlines(el, url))
+        children = tuple(_trim_line_breaks(process_inlines(el, url)))
         if not children:
             return []
         # Skip whitespace-only paragraphs (only Text children, all whitespace)
@@ -1062,7 +1349,12 @@ def process_element(el: HtmlElement, url: str) -> list[Block]:
         return blocks
 
     # Inline-level elements encountered at block level -- wrap in Paragraph.
-    if tag in INLINE_FORMATTING_TAGS:
+    # One that wraps block-level content (``<span><p>A</p><p>B</p></span>``)
+    # is laid out as those blocks; a link keeps its target and gets a line
+    # break per block instead.
+    if tag in INLINE_FORMATTING_TAGS or tag in _EXTRA_INLINE_TAGS:
+        if tag != "a" and _has_block_descendant(el):
+            return process_children_as_blocks(el, url)
         inlines = _element_to_inline_list(el, url)
         if inlines:
             return [mk_paragraph(tuple(inlines), prov)]
@@ -1087,54 +1379,96 @@ def _element_to_inline_list(el: HtmlElement, url: str) -> list[Inline]:
     Unlike element_to_inline which returns a single node, this returns a list
     so transparent elements can contribute multiple children.
     """
+    return _trim_line_breaks(_finalize_inlines(_inline_items(el, url)))
+
+
+def _is_inline_level(el: HtmlElement) -> bool:
+    """True if ``el`` flows inline (joins the surrounding text run)."""
     tag = el.tag.lower() if isinstance(el.tag, str) else ""
+    if tag not in INLINE_FORMATTING_TAGS and tag not in _EXTRA_INLINE_TAGS:
+        return False
+    return not _is_block_boundary(el) and not _has_block_descendant(el)
 
-    if tag in ("span", "u", "mark", "abbr", "time", "small", "font"):
-        return process_inlines(el, url)
 
-    node = element_to_inline(el, url)
-    if node is not None:
-        return [node]
-    return []
+def _is_link_like(el: HtmlElement) -> bool:
+    """True if ``el`` is a link, or an inline wrapper whose text is one link."""
+    tag = el.tag.lower() if isinstance(el.tag, str) else ""
+    if tag == "a":
+        return el.get("href") is not None
+    links = el.findall(".//a[@href]")
+    if len(links) != 1:
+        return False
+    return (links[0].text_content() or "").strip() == (el.text_content() or "").strip()
 
 
 def process_children_as_blocks(el: HtmlElement, url: str) -> list[Block]:
     """Process all children of an element as block nodes.
 
-    Also handles stray text between child elements by wrapping it in Paragraphs.
-    After the initial pass, runs a merge pass that collapses "orphan inline"
-    paragraphs into the preceding paragraph (see :func:`merge_orphan_inlines`).
+    Text and inline elements that sit directly in ``el`` between block
+    children form one paragraph per run (a browser's anonymous block box),
+    so ``<div>quoted <b>x</b> <i>y</i></div>`` is one paragraph with its
+    spaces. At this level a stylesheet usually lays sibling items out
+    apart, so a line break (never an empty join) separates two inline
+    elements that touch with no whitespace between them
+    (``<div><a>Home</a><a>About</a></div>``), and two links separated only
+    by whitespace (a menu or link list). After the pass, orphan-inline
+    paragraphs are collapsed into the preceding paragraph (see
+    :func:`merge_orphan_inlines`).
     """
     result: list[Block] = []
     prov = make_provenance(url)
+    pending: list[_InlineItem] = []
+    # The last inline element added to ``pending`` (None after a block or
+    # visible text) and whether only whitespace has followed it.
+    prev_element: HtmlElement | None = None
+    space_since = False
 
-    # Leading text in the element.
-    text = _strip_or_empty(el.text)
-    if text:
-        collapsed = collapse_whitespace(text).strip()
-        if collapsed:
-            result.append(mk_paragraph((mk_text(collapsed),), prov))
+    def flush() -> None:
+        inlines = _trim_line_breaks(_finalize_inlines(pending))
+        pending.clear()
+        if inlines and not is_whitespace_only_inlines(inlines):
+            result.append(mk_paragraph(tuple(inlines), prov))
+
+    def add_text(text: str | None) -> None:
+        nonlocal prev_element, space_since
+        if text:
+            _append_text(pending, text)
+            if text.strip():
+                prev_element = None
+            else:
+                space_since = True
+
+    add_text(el.text)
 
     for child in el:
         if not isinstance(child.tag, str):
             # Comment/PI -- grab tail text.
-            tail = _strip_or_empty(child.tail)
-            if tail:
-                collapsed = collapse_whitespace(tail).strip()
-                if collapsed:
-                    result.append(mk_paragraph((mk_text(collapsed),), prov))
+            add_text(child.tail)
             continue
 
-        blocks = process_element(child, url)
-        result.extend(blocks)
+        tag = child.tag.lower()
+        if _skip(child, tag):
+            add_text(child.tail)
+            continue
 
-        # Tail text after this child element.
-        tail = _strip_or_empty(child.tail)
-        if tail:
-            collapsed = collapse_whitespace(tail).strip()
-            if collapsed:
-                result.append(mk_paragraph((mk_text(collapsed),), prov))
+        if _is_inline_level(child):
+            items = _inline_items(child, url)
+            if items:
+                if prev_element is not None and (
+                    not space_since or (_is_link_like(prev_element) and _is_link_like(child))
+                ):
+                    pending.append(_BOUNDARY)
+                pending.extend(items)
+                prev_element = child
+                space_since = False
+        else:
+            flush()
+            prev_element = None
+            result.extend(process_element(child, url))
 
+        add_text(child.tail)
+
+    flush()
     return merge_orphan_inlines(result)
 
 

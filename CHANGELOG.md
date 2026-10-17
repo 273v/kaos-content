@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **HTML parser no longer glues words across inline element boundaries.**
+  `collapse_whitespace` returned `""` for whitespace-only text, so the
+  space held by a whitespace-only text node or tail vanished:
+  `For<span> </span>the` became `Forthe` and `<b>a</b> <i>b</i>` became
+  `ab`. Edge whitespace was tested against ASCII only, so `&nbsp;` before
+  or after an element was dropped too. Whitespace now follows CSS
+  `white-space: normal`: any whitespace run (NBSP included) between inline
+  elements is one space, spaces that meet across a boundary collapse to
+  one, and whitespace at a line start or end is dropped. Leading and
+  trailing whitespace of `<b>`, `<i>`, `<a>`, `<sub>`, `<sup>`, `<s>` moves
+  outside the node, so Markdown output no longer has `** bold **`. On 2,251
+  public U.S. government pages the glued-token rate fell from 11.1 to
+  0.03 per 1,000 words.
+- **Block-level elements inside inline content end the line.** `<div>`,
+  `<p>`, `<li>`, `<td>` and other block elements (and an inline
+  `style="display:block"`) nested in a link, span or other inline element
+  were flattened with `text_content()` and ran into each other
+  (`<a><div>A</div><div>B</div></a>` gave `AB`). They now become line
+  breaks. Unknown inline tags (`<cite>`, `<q>`, `<label>`, Word's `<o:p>`)
+  are expanded in place, so their own spacing survives.
+- **Text and inline elements directly in a block container form one
+  paragraph.** `<div>quoted <b>x</b> <i>y</i></div>` gave three
+  paragraphs; it is now one, like a browser's anonymous block box. Two
+  inline elements that touch with no whitespace at this level, and two
+  links separated only by whitespace (menus, link lists), are separated
+  by a line break. An inline element that wraps block content
+  (`<span><p>..</p><p>..</p></span>`) is laid out as those blocks.
+- **Paragraphs inside a table cell stay apart in text output.**
+  `serialize_text` joined the blocks of a cell with no separator
+  (`Respondents:Agri-Fintech`); each block is now on its own line, as a
+  `<br>` already rendered.
+- **Page-wrapper `<form>` elements are no longer dropped.** ASP.NET
+  WebForms and Lotus Domino pages put the whole body inside one `<form>`,
+  and every `<form>` was skipped, so those pages parsed to nothing. A
+  `<form>` that contains page content (headings, paragraphs, tables,
+  lists, `<main>`, `<article>`) is now walked; `<select>`, `<datalist>`
+  and `<textarea>` never contribute text. A `<nav>`, `<header>` or
+  `<footer>` that wraps `<main>`, an `<article>` or `role="main"` (lxml
+  nests the rest of a page inside an unclosed one) is no longer skipped.
+
 ## [0.1.8] — 2026-09-25
 
 ### Fixed
