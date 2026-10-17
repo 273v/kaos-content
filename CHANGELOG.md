@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Words no longer run into image alt text or padded inline elements.**
+  `serialize_text` rendered an image's alt text with no separation, so
+  `<img alt="Return to top"><a>Return to top</a>` became `Return to
+  topReturn to top` and `Date<img alt="sort descending">` became
+  `Datesort descending`. An image is a separate box on the page: its alt is
+  now separated from an adjacent word by a space (never before punctuation
+  or after an opening bracket), a blank alt still separates its neighbours,
+  and alt whitespace is trimmed. In the HTML walker, an inline element whose
+  inline `style` sets a non-zero horizontal `padding` or `margin` (for
+  example `YEAs<span style="padding-left:10px">49</span>` on Senate
+  roll-call pages) is separated from the text on that side. On 2,444 public
+  U.S. government pages, 30 documents gain separating spaces and 213 lose a
+  stray trailing space; no word is split.
+
+### Fixed
+
 - **HTML parser no longer glues words across inline element boundaries.**
   `collapse_whitespace` returned `""` for whitespace-only text, so the
   space held by a whitespace-only text node or tail vanished:
