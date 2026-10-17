@@ -23,8 +23,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   U.S. government pages, 30 documents gain separating spaces and 213 lose a
   stray trailing space; no word is split.
 
-### Fixed
-
 - **HTML parser no longer glues words across inline element boundaries.**
   `collapse_whitespace` returned `""` for whitespace-only text, so the
   space held by a whitespace-only text node or tail vanished:
