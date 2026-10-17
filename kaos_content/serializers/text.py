@@ -246,7 +246,30 @@ class _TextContext:
     # ── Inline rendering ──
 
     def _render_inlines(self, inlines: Sequence[Any]) -> str:
-        return "".join(self._render_inline(i) for i in inlines)
+        # An image renders as its alt text. It is a separate box on the page,
+        # so its alt never runs into a word next to it
+        # (``<img alt="Return to top"><a>Return to top</a>``). No space is
+        # added before punctuation or after an opening bracket.
+        out: list[str] = []
+        pad_next = False
+        for inline in inlines:
+            rendered = self._render_inline(inline)
+            if inline.node_type == "image":
+                if rendered and not rendered.strip():
+                    pad_next = True  # a blank alt still separates its neighbours
+                    continue
+                rendered = rendered.strip()
+            if not rendered:
+                continue
+            if pad_next and out and _needs_space(out[-1][-1], rendered[0]):
+                rendered = " " + rendered
+            pad_next = False
+            if inline.node_type == "image":
+                if out and _needs_space(out[-1][-1], rendered[0]):
+                    rendered = " " + rendered
+                pad_next = True
+            out.append(rendered)
+        return "".join(out)
 
     def _render_inline(self, inline: Any) -> str:
         nt = inline.node_type
@@ -289,3 +312,13 @@ class _TextContext:
         if nt == "soft_break":
             return " "
         return ""
+
+
+_OPENERS = "([{\"'\u201c\u2018/-"
+
+
+def _needs_space(left: str, right: str) -> bool:
+    """Whether two adjacent rendered pieces need a separating space."""
+    if left.isspace() or right.isspace() or left in _OPENERS:
+        return False
+    return right.isalnum() or right in "([\u201c\u2018"

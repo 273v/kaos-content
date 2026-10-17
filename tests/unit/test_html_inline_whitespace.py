@@ -212,3 +212,29 @@ class TestMisnestedChrome:
     def test_plain_nav_and_footer_are_skipped(self) -> None:
         html = "<body><nav><a href='/'>Home</a></nav><p>Body.</p><footer>Contact</footer></body>"
         assert text_of(html) == "Body."
+
+
+class TestVisualSeparation:
+    def test_image_alt_does_not_run_into_link_text(self) -> None:
+        html = '<p><img src="/up.gif" alt="Return to top"><a href="#top">Return to top</a></p>'
+        assert text_of(html) == "Return to top Return to top"
+
+    def test_image_alt_between_words(self) -> None:
+        assert text_of('<p>Before<img src="/x.gif" alt="logo">after</p>') == "Before logo after"
+
+    def test_image_without_alt_adds_nothing(self) -> None:
+        assert text_of('<p>Before<img src="/x.gif">after</p>') == "Beforeafter"
+
+    def test_padded_span_is_separated(self) -> None:
+        # Senate roll-call vote pages.
+        html = '<div>YEAs<span style="padding-left:10px">49</span></div>'
+        assert text_of(html) == "YEAs 49"
+
+    def test_padding_shorthand(self) -> None:
+        assert text_of('<p>A<span style="padding: 0 4px">B</span>C</p>') == "A B C"
+
+    def test_zero_padding_keeps_text_joined(self) -> None:
+        assert text_of('<p>W<span style="padding-left:0">ord</span></p>') == "Word"
+
+    def test_vertical_padding_only_keeps_text_joined(self) -> None:
+        assert text_of('<p>W<span style="padding-top:4px">ord</span></p>') == "Word"

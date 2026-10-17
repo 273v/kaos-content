@@ -1049,7 +1049,7 @@ def _collect_inlines(el: HtmlElement, url: str) -> list[_InlineItem]:
                     items.extend(_collect_inlines(child, url))
                     items.append(_BOUNDARY)
                 else:
-                    items.extend(_inline_items(child, url))
+                    items.extend(_spaced_inline_items(child, url))
         _append_text(items, child.tail)
     return items
 
@@ -1116,6 +1116,61 @@ def _mk_superscript(children: tuple[Inline, ...]) -> Inline:
         node_type="superscript",
         children=children,
     )
+
+
+_SPACING_RE = re.compile(r"(?:^|;)\s*(padding|margin)(-left|-right)?\s*:\s*([^;!]+)", re.IGNORECASE)
+_LENGTH_RE = re.compile(r"^-?\d*\.?\d+")
+
+
+def _nonzero_length(value: str) -> bool:
+    m = _LENGTH_RE.match(value.strip())
+    return bool(m) and float(m.group(0)) > 0
+
+
+def _horizontal_spacing(el: HtmlElement) -> tuple[bool, bool]:
+    """(left, right): does the element's inline style put space on that side?
+
+    ``<span style="padding-left:10px">49</span>`` is laid out apart from the
+    text before it even with no whitespace in the source ("YEAs" 49 on Senate
+    roll-call pages), so the walker emits a separating space there.
+    """
+    style = el.get("style")
+    if not style or ("padding" not in style.lower() and "margin" not in style.lower()):
+        return False, False
+    left = right = False
+    for _prop, side, value in _SPACING_RE.findall(style):
+        side = side.lower()
+        if side == "-left":
+            left = left or _nonzero_length(value)
+        elif side == "-right":
+            right = right or _nonzero_length(value)
+        else:
+            parts = value.split()
+            if not parts:
+                continue
+            # CSS shorthand: 1 value = all sides; 2 = vertical horizontal;
+            # 3 = top horizontal bottom; 4 = top right bottom left.
+            if len(parts) in (1, 2, 3):
+                h = parts[0] if len(parts) == 1 else parts[1]
+                left = left or _nonzero_length(h)
+                right = right or _nonzero_length(h)
+            else:
+                right = right or _nonzero_length(parts[1])
+                left = left or _nonzero_length(parts[3])
+    return left, right
+
+
+def _spaced_inline_items(el: HtmlElement, url: str) -> list[_InlineItem]:
+    """:func:`_inline_items` plus a space on any side the inline style pads."""
+    items = _inline_items(el, url)
+    if not items:
+        return items
+    left, right = _horizontal_spacing(el)
+    if left:
+        items = [mk_text(" "), *items]
+    if right:
+        items = [*items, mk_text(" ")]
+    return items
 
 
 def _inline_items(el: HtmlElement, url: str) -> list[_InlineItem]:
@@ -1452,7 +1507,7 @@ def process_children_as_blocks(el: HtmlElement, url: str) -> list[Block]:
             continue
 
         if _is_inline_level(child):
-            items = _inline_items(child, url)
+            items = _spaced_inline_items(child, url)
             if items:
                 if prev_element is not None and (
                     not space_since or (_is_link_like(prev_element) and _is_link_like(child))
