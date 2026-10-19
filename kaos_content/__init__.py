@@ -99,6 +99,8 @@ from kaos_content.model import (
 )
 from kaos_content.normalize import (
     canonical_hash,
+    clean_extracted_text,
+    is_noncharacter,
     normalize_date,
     normalize_entity,
     normalize_number,
@@ -347,6 +349,7 @@ __all__ = [
     "__version__",
     "apply",
     "canonical_hash",
+    "clean_extracted_text",
     "column_type_from_python",
     "compare_documents",
     "compose",
@@ -372,6 +375,7 @@ __all__ = [
     "find_links",
     "find_tables",
     "infer_column_type",
+    "is_noncharacter",
     "iter_paragraph_units",
     "iter_sentence_units",
     "load_document",
