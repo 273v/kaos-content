@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `clean_extracted_text()` / `is_noncharacter()` in `kaos_content.normalize`: character-class normalization for text extracted from PDF text layers, OCR or HTML. Noncharacters (e.g. the legacy PDFium hyphen marker U+FFFE) and SOFT HYPHEN (U+00AD) at a line end before a lowercase continuation join the word; elsewhere they are removed (default-ignorable); NFKC last (optional). Case and whitespace are kept.
+
 ### Fixed
 
 - **Words no longer run into image alt text or padded inline elements.**

@@ -25,6 +25,8 @@ Functions:
   separators → Decimal string (preserves precision: "13.50" stays
   "13.50", not "13.5").
 - :func:`canonical_hash` — SHA-256 of any canonical string.
+- :func:`clean_extracted_text` — noncharacter / soft-hyphen handling + NFKC
+  for text extracted from PDFs, OCR and HTML (keeps case and whitespace).
 """
 
 from __future__ import annotations
@@ -158,6 +160,63 @@ def normalize_text(
     if strip_punctuation:
         result = _PUNCT_RE.sub("", result)
     return _WHITESPACE_RE.sub(" ", result).strip()
+
+
+def is_noncharacter(ch: str) -> bool:
+    """Return whether ``ch`` is a Unicode noncharacter code point.
+
+    Noncharacters are U+FDD0..U+FDEF and the last two code points of every plane
+    (U+xFFFE, U+xFFFF). They are reserved for internal use and are never valid in
+    interchanged text (Unicode Standard, section 23.7).
+    """
+    o = ord(ch)
+    return 0xFDD0 <= o <= 0xFDEF or (o & 0xFFFE) == 0xFFFE
+
+
+SOFT_HYPHEN = "\u00ad"
+
+
+def clean_extracted_text(text: str, *, unicode_nfkc: bool = True) -> str:
+    """Normalize text extracted from PDF text layers, OCR or HTML for storage and training.
+
+    Character-class rules only; nothing here matches words or rewrites prose:
+
+    * **Noncharacters** (:func:`is_noncharacter`, e.g. U+FFFE, which older PDFium builds emit as
+      an end-of-line hyphen marker) are treated like a SOFT HYPHEN when they end a line, and
+      removed anywhere else.
+    * **SOFT HYPHEN** (U+00AD) is default-ignorable: it marks an optional break and is never
+      displayed except at a line break. At the end of a line whose next line starts with a
+      lowercase letter, the two lines are joined into one word (the line break, surrounding
+      spaces and the soft hyphen are dropped), the same rule kaos-pdf applies to PDFium's
+      hyphen markers. Any other soft hyphen is removed.
+    * **NFKC** (``unicode_nfkc``, default on), applied last.
+
+    Line endings, other whitespace and all other characters are left as they are.
+    """
+    out: list[str] = []
+    n = len(text)
+    i = 0
+    while i < n:
+        ch = text[i]
+        if ch == SOFT_HYPHEN or is_noncharacter(ch):
+            j = i + 1
+            while j < n and text[j] in " \t":
+                j += 1
+            if j < n and text[j] in "\r\n":
+                k = j + 1 if not (text[j] == "\r" and j + 1 < n and text[j + 1] == "\n") else j + 2
+                m = k
+                while m < n and text[m] in " \t":
+                    m += 1
+                prev_alpha = bool(out) and out[-1].isalpha()
+                if prev_alpha and m < n and text[m].islower():
+                    i = m  # join the word: drop marker, line break and indentation
+                    continue
+            i += 1  # drop the marker; keep whatever follows
+            continue
+        out.append(ch)
+        i += 1
+    result = "".join(out)
+    return unicodedata.normalize("NFKC", result) if unicode_nfkc else result
 
 
 def normalize_entity(text: str) -> str:
